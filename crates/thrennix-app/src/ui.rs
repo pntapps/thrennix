@@ -85,6 +85,10 @@ enum Action {
     Restart(u64, String),
     Details(u64),
     Remove(Vec<u64>, bool),
+    PauseMany(Vec<u64>),
+    ResumeMany(Vec<u64>),
+    SelectAll,
+    SelectNone,
 }
 
 pub struct ThrennixApp {
@@ -388,6 +392,31 @@ impl ThrennixApp {
             }
         }
         let modifiers = ui.input(|i| i.modifiers);
+        // Registered before the rows so they stay on top: clicks on empty space below the
+        // rows clear the selection, and right-click there offers Select all.
+        let background = ui.interact(ui.max_rect(), ui.id().with("table_bg"), Sense::click());
+        if background.clicked() && !modifiers.command && !modifiers.shift {
+            actions.push(Action::SelectNone);
+        }
+        background.context_menu(|ui| {
+            if ui
+                .add_enabled(
+                    !view.is_empty(),
+                    egui::Button::new("Select all").shortcut_text("Ctrl+A"),
+                )
+                .clicked()
+            {
+                actions.push(Action::SelectAll);
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(!self.selected.is_empty(), egui::Button::new("Select none"))
+                .clicked()
+            {
+                actions.push(Action::SelectNone);
+                ui.close_menu();
+            }
+        });
         let mut table = TableBuilder::new(ui)
             .id_salt("downloads")
             .striped(true)
@@ -561,7 +590,28 @@ impl ThrennixApp {
         );
         item(ui, "Details…", true, Action::Details(r.id));
         ui.separator();
-        if r.running {
+        if targets.len() > 1 {
+            // Several rows selected: act on all of them.
+            let picked = || rows.iter().filter(|x| targets.contains(&x.id));
+            let pausable: Vec<u64> = picked().filter(|x| x.running).map(|x| x.id).collect();
+            let resumable: Vec<u64> = picked()
+                .filter(|x| !x.running && x.status != Status::Completed)
+                .map(|x| x.id)
+                .collect();
+            let n = targets.len();
+            item(
+                ui,
+                &format!("Pause selected ({n})"),
+                !pausable.is_empty(),
+                Action::PauseMany(pausable),
+            );
+            item(
+                ui,
+                &format!("Resume selected ({n})"),
+                !resumable.is_empty(),
+                Action::ResumeMany(resumable),
+            );
+        } else if r.running {
             item(ui, "Pause", true, Action::Pause(r.id));
         } else {
             item(ui, "Resume", !done, Action::Resume(r.id));
@@ -583,13 +633,19 @@ impl ThrennixApp {
             );
         }
         ui.separator();
-        item(ui, "Remove", true, Action::Remove(targets.clone(), false));
-        item(
-            ui,
-            "Remove + delete file",
-            true,
-            Action::Remove(targets, true),
-        );
+        item(ui, "Select all (Ctrl+A)", true, Action::SelectAll);
+        ui.separator();
+        let n = targets.len();
+        let (remove, remove_delete) = if n > 1 {
+            (
+                format!("Remove selected ({n})"),
+                format!("Remove selected + delete files ({n})"),
+            )
+        } else {
+            ("Remove".to_string(), "Remove + delete file".to_string())
+        };
+        item(ui, &remove, true, Action::Remove(targets.clone(), false));
+        item(ui, &remove_delete, true, Action::Remove(targets, true));
     }
 
     // ------------------------------------------------------------ status bar
@@ -1108,6 +1164,10 @@ impl ThrennixApp {
     fn apply(&mut self, actions: Vec<Action>, ctx: &egui::Context, rows: &[RowView]) {
         for a in actions {
             match a {
+                Action::PauseMany(ids) => ids.into_iter().for_each(|id| self.shared.pause(id)),
+                Action::ResumeMany(ids) => ids.into_iter().for_each(|id| self.shared.resume(id)),
+                Action::SelectAll => self.select_all(rows),
+                Action::SelectNone => self.selected.clear(),
                 Action::Pause(id) => self.shared.pause(id),
                 Action::Resume(id) => self.shared.resume(id),
                 Action::Open(p) => {
@@ -1156,15 +1216,20 @@ impl ThrennixApp {
             self.ask_remove(&sel);
         }
         if all {
-            self.selected = rows
-                .iter()
-                .filter(|r| self.filter.matches(r))
-                .map(|r| r.id)
-                .collect();
+            self.select_all(rows);
         }
         if new {
             self.open_add_dialog();
         }
+    }
+
+    /// Select every row visible under the current category filter.
+    fn select_all(&mut self, rows: &[RowView]) {
+        self.selected = rows
+            .iter()
+            .filter(|r| self.filter.matches(r))
+            .map(|r| r.id)
+            .collect();
     }
 }
 
