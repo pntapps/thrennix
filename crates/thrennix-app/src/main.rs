@@ -2,6 +2,7 @@
 //! thrennix.exe: GUI, native messaging host, and host (un)registration.
 
 mod about;
+mod add_url;
 mod args;
 mod backend;
 mod brand;
@@ -15,6 +16,7 @@ mod register;
 mod secret;
 mod state;
 mod theme;
+mod tray;
 mod ui;
 mod winsec;
 
@@ -113,6 +115,9 @@ fn run_gui(demo: bool) -> i32 {
     }
 
     let title = if demo { "Thrennix (demo)" } else { "Thrennix" };
+    // `--minimized` (Windows startup): hide in the tray, or minimize when there is no tray.
+    let minimized =
+        shared.settings().start_minimized && std::env::args().skip(1).any(|a| a == "--minimized");
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(title)
@@ -123,16 +128,21 @@ fn run_gui(demo: bool) -> i32 {
         ..Default::default()
     };
     let open_about = demo && extra.iter().any(|a| a == "--about");
+    let add_yt = (demo && extra.iter().any(|a| a == "--add-yt"))
+        .then(|| "https://www.youtube.com/watch?v=aqz-KE-bpKQ".to_string());
     let app_shared = shared.clone();
     let result = eframe::run_native(
         title,
         options,
         Box::new(move |cc| {
-            Ok(Box::new(
-                ui::ThrennixApp::new(cc, app_shared).with_about(open_about),
-            ))
+            let app = ui::ThrennixApp::new(cc, app_shared.clone())
+                .with_about(open_about)
+                .with_add_url(add_yt);
+            tray::init(cc, app_shared, minimized);
+            Ok(Box::new(app))
         }),
     );
+    tray::remove();
     shared.shutdown();
     match result {
         Ok(()) => 0,

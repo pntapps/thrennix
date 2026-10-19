@@ -242,13 +242,14 @@ async fn max_conns_returns_503_and_stats() {
 #[tokio::test]
 async fn fail_drops_connection() {
     let base = server().await;
-    let r = client()
-        .get(format!("{base}/file/4M?fail=1"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 200);
-    assert!(r.bytes().await.is_err(), "body should be cut short");
+    // The drop can land before the headers are flushed, so the request itself may fail too.
+    match client().get(format!("{base}/file/4M?fail=1")).send().await {
+        Ok(r) => {
+            assert_eq!(r.status(), 200);
+            assert!(r.bytes().await.is_err(), "body should be cut short");
+        }
+        Err(e) => assert!(!e.is_status(), "expected a dropped connection, got {e}"),
+    }
 }
 
 #[tokio::test]

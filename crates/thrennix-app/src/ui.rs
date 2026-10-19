@@ -15,11 +15,12 @@ use egui_extras::{Column, TableBuilder};
 use thrennix_core::Status;
 
 use crate::about;
+use crate::add_url::{self, AddDialog};
 use crate::brand;
 use crate::details::{self, DetailsAction, DetailsState};
 use crate::fmt;
 use crate::protocol::{validate_url, Kind};
-use crate::state::{reveal, NewDownload, RowView, Settings, Shared};
+use crate::state::{reveal, RowView, Settings, Shared};
 use crate::theme::{self, toolbar_button, ui_palette, Category, Icon, ThemeChoice};
 
 const TOAST_TIME: Duration = Duration::from_secs(8);
@@ -72,13 +73,6 @@ struct RemoveDialog {
     label: String,
     delete: bool,
     identifiable: bool,
-}
-
-struct AddDialog {
-    url: String,
-    dir: PathBuf,
-    err: Option<String>,
-    focus: bool,
 }
 
 enum Action {
@@ -150,6 +144,14 @@ impl ThrennixApp {
         self
     }
 
+    /// Open the Add URL dialog prefilled (demo `--add-yt`, for screenshots).
+    pub fn with_add_url(mut self, url: Option<String>) -> Self {
+        if let Some(url) = url {
+            self.add = Some(AddDialog::new(url, self.shared.settings().download_dir));
+        }
+        self
+    }
+
     fn toast(&mut self, msg: impl Into<String>) {
         self.toast = Some((msg.into(), Instant::now()));
     }
@@ -161,12 +163,7 @@ impl ThrennixApp {
             .ok()
             .filter(|t| !t.contains(char::is_whitespace) && validate_url(t).is_ok())
             .unwrap_or_default();
-        self.add = Some(AddDialog {
-            url: clip,
-            dir: self.shared.settings().download_dir,
-            err: None,
-            focus: true,
-        });
+        self.add = Some(AddDialog::new(clip, self.shared.settings().download_dir));
     }
 
     /// Browser downloads waiting for "Ask where to save". Cancelled = kept as Paused.
@@ -270,6 +267,17 @@ impl ThrennixApp {
                     .clicked()
                 {
                     self.about_open = !self.about_open;
+                }
+                let tray = crate::tray::is_active();
+                if toolbar_button(ui, Icon::ToTray, "To tray", tray)
+                    .on_hover_text(if tray {
+                        "Hide to the system tray; downloads keep running (Ctrl+H)"
+                    } else {
+                        "Turn on the tray icon in Settings to use this"
+                    })
+                    .clicked()
+                {
+                    crate::tray::hide_to_tray();
                 }
             });
         });
@@ -411,6 +419,7 @@ impl ThrennixApp {
             .header(24.0, |mut header| {
                 for (label, key) in headers {
                     header.col(|ui| {
+                        table_cell(ui);
                         let arrow = match self.sort {
                             (k, true) if k == key => " ▲",
                             (k, false) if k == key => " ▼",
@@ -431,29 +440,42 @@ impl ThrennixApp {
                     let r = view[row.index()];
                     row.set_selected(self.selected.contains(&r.id));
                     row.col(|ui| {
+                        table_cell(ui);
                         theme::file_glyph(ui, r.category);
-                        ui.add(egui::Label::new(&*r.name).truncate());
+                        ui.add(egui::Label::new(&*r.name).truncate().selectable(false));
                     });
                     row.col(|ui| {
+                        table_cell(ui);
                         ui.label(r.total.map_or("—".into(), fmt::bytes));
                     });
-                    row.col(|ui| status_cell(ui, r, &pal));
+                    row.col(|ui| {
+                        table_cell(ui);
+                        status_cell(ui, r, &pal);
+                    });
                     let active = r.running && !r.muxing && r.status == Status::Downloading;
                     row.col(|ui| {
+                        table_cell(ui);
                         if active {
                             ui.label(r.eta_secs.map_or("—".into(), fmt::eta));
                         }
                     });
                     row.col(|ui| {
+                        table_cell(ui);
                         if active {
                             ui.label(fmt::speed(r.speed_bps));
                         }
                     });
                     row.col(|ui| {
+                        table_cell(ui);
                         ui.label(r.last_try.map_or(String::new(), format_time));
                     });
                     row.col(|ui| {
-                        ui.label(RichText::new(&*r.host).color(pal.weak_text));
+                        table_cell(ui);
+                        ui.add(
+                            egui::Label::new(RichText::new(&*r.host).color(pal.weak_text))
+                                .truncate()
+                                .selectable(false),
+                        );
                     });
                     let resp = row.response();
                     if resp.clicked() {
@@ -749,7 +771,52 @@ impl ThrennixApp {
                             }
                         });
                         ui.end_row();
+                        ui.label("");
+                        commit |= ui
+                            .checkbox(
+                                &mut s.yt_always_best,
+                                "YouTube: always download the highest quality (don't ask)",
+                            )
+                            .on_hover_text(
+                                "Add URL skips the quality list. The browser extension still                                  lets you pick.",
+                            )
+                            .changed();
+                        ui.end_row();
                     });
+                ui.add_space(4.0);
+                ui.separator();
+                // Window / system tray.
+                ui.label(RichText::new("Window").strong());
+                commit |= ui
+                    .checkbox(&mut s.tray_icon, "Show icon in system tray")
+                    .changed();
+                ui.add_enabled_ui(s.tray_icon, |ui| {
+                    ui.indent("tray_options", |ui| {
+                        commit |= ui
+                            .checkbox(
+                                &mut s.minimize_to_tray,
+                                "Minimize to tray instead of taskbar",
+                            )
+                            .changed();
+                        commit |= ui
+                            .checkbox(
+                                &mut s.close_to_tray,
+                                "Close button minimizes to tray (keep downloading in background)",
+                            )
+                            .on_hover_text("Quit from the tray icon's menu")
+                            .changed();
+                        commit |= ui
+                            .checkbox(
+                                &mut s.start_minimized,
+                                "Start minimized to tray when Windows starts",
+                            )
+                            .on_hover_text(
+                                "Applies when Thrennix starts with Windows (installer option)",
+                            )
+                            .changed();
+                    });
+                });
+                s.tray_hint_shown |= crate::tray::hint_shown();
                 ui.add_space(4.0);
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -824,74 +891,7 @@ impl ThrennixApp {
         }
 
         if let Some(mut d) = self.add.take() {
-            let (mut start, mut cancel) = (false, false);
-            egui::Window::new("Add download")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    egui::Grid::new("add")
-                        .num_columns(2)
-                        .spacing([10.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("URL");
-                            let resp = ui.add(
-                                TextEdit::singleline(&mut d.url)
-                                    .hint_text("https://…")
-                                    .desired_width(420.0),
-                            );
-                            if d.focus {
-                                resp.request_focus();
-                                d.focus = false;
-                            }
-                            if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                                start = true;
-                            }
-                            ui.end_row();
-                            ui.label("Save to");
-                            ui.horizontal(|ui| {
-                                ui.label(d.dir.display().to_string());
-                                if ui.button("Change…").clicked() {
-                                    if let Some(p) =
-                                        rfd::FileDialog::new().set_directory(&d.dir).pick_folder()
-                                    {
-                                        d.dir = p;
-                                    }
-                                }
-                            });
-                            ui.end_row();
-                        });
-                    if let Some(e) = &d.err {
-                        ui.colored_label(ui.visuals().error_fg_color, e);
-                    }
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        start |= ui
-                            .add(egui::Button::new("Start").min_size(vec2(80.0, 0.0)))
-                            .clicked();
-                        cancel = ui.button("Cancel").clicked();
-                    });
-                });
-            if start {
-                let url = d.url.trim().to_string();
-                match validate_url(&url) {
-                    Err(e) => d.err = Some(e),
-                    Ok(_) => {
-                        let kind = Kind::guess(&url);
-                        let nd = NewDownload {
-                            kind,
-                            format: (kind == Kind::Ytdlp).then(|| Kind::YTDLP_BEST.to_string()),
-                            url,
-                            ..Default::default()
-                        };
-                        match self.shared.add(nd, Some(d.dir.clone()), false) {
-                            Ok(()) => cancel = true,
-                            Err(e) => d.err = Some(e),
-                        }
-                    }
-                }
-            }
-            if !cancel && !ctx.input(|i| i.key_pressed(Key::Escape)) {
+            if add_url::show(ctx, &mut d, &self.shared) {
                 self.add = Some(d);
             }
         }
@@ -1092,7 +1092,10 @@ impl ThrennixApp {
                     close || !open
                 } else {
                     let mut close = false;
-                    egui::CentralPanel::default().show(ctx, |ui| close = about::show(ui, &logo));
+                    // Edge-to-edge: the About page draws its own header band and padding.
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(0))
+                        .show(ctx, |ui| close = about::show(ui, &logo));
                     close || ctx.input(|i| i.viewport().close_requested())
                 }
             },
@@ -1167,6 +1170,16 @@ impl ThrennixApp {
 
 impl eframe::App for ThrennixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Tray: close-to-tray (cancels the close), Ctrl+H, requests from the tray menu.
+        for req in crate::tray::on_frame(ctx, &self.shared) {
+            match req {
+                crate::tray::UiRequest::Settings if self.settings_edit.is_none() => {
+                    self.open_settings()
+                }
+                crate::tray::UiRequest::Settings => {}
+                crate::tray::UiRequest::About => self.about_open = true,
+            }
+        }
         self.process_pending();
         for id in self.shared.take_open_details() {
             self.details.entry(id).or_default();
@@ -1240,6 +1253,19 @@ impl eframe::App for ThrennixApp {
 
 fn palette_of(ctx: &egui::Context) -> theme::Palette {
     theme::palette(ctx.style().visuals.dark_mode)
+}
+
+/// Left inset of every download-table cell (header and body), measured from
+/// the cell's edge; with the table's 8 px column gap this puts content ~10 px
+/// right of the column divider.
+const CELL_PAD: f32 = 6.0;
+
+/// Common setup for a download-table cell: consistent left padding, and
+/// non-selectable labels so text never captures clicks (or shows an I-beam)
+/// — the row itself senses clicks, double-clicks and right-clicks.
+fn table_cell(ui: &mut egui::Ui) {
+    ui.style_mut().interaction.selectable_labels = false;
+    ui.add_space(CELL_PAD);
 }
 
 /// "42.3%" / "Complete" / "Paused" / "Merging…" / "Error" with a thin bar under it.

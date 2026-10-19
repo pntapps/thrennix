@@ -143,7 +143,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Registry]
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Thrennix"; \
-  ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: startup
+  ValueData: """{app}\{#AppExe}"" --minimized"; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
 ; Native messaging host manifests + HKCU keys for Chrome/Edge/Chromium/Brave/Firefox.

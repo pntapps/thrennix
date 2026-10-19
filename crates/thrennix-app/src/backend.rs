@@ -187,7 +187,8 @@ impl Backend for RealBackend {
 // ---------------------------------------------------------------- demo
 
 /// Simulated downloads for UI testing. A URL containing "fail" fails after a second,
-/// "changed" fails with RemoteChanged; `ytFormats` for a URL with "noyt" fails.
+/// "changed" fails with RemoteChanged; `ytFormats` for a URL with "noyt" fails (yt-dlp
+/// missing), a "playlist" URL fails like a real playlist.
 pub struct DemoBackend {
     pub rt: Handle,
 }
@@ -386,28 +387,34 @@ impl Backend for DemoBackend {
             if url.contains("noyt") {
                 return Err("yt-dlp not found (demo)".into());
             }
-            let f = |id: &str, label: &str, height: Option<u32>, mb: u64| YtFormat {
-                id: id.into(),
+            if url.contains("playlist") {
+                return Err("playlists are not supported".into());
+            }
+            // Same shape as the real probe (thrennix_media::ytdlp::build_info).
+            let video = |h: u32, label: &str, mb: u64| {
+                YtFormat {
+                id: format!(
+                    "bv*[height={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[height={h}]+ba[ext=m4a]/bv*[height={h}]+ba/bv*[height<={h}]+ba/b[height<={h}]"
+                ),
                 label: label.into(),
-                height,
+                height: Some(h),
                 filesize: Some(mb * 1024 * 1024),
+            }
             };
             Ok(YtInfoOut {
-                title: "Demo video".into(),
+                title: "Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film".into(),
                 formats: vec![
-                    f(
-                        "bv*[height<=1080]+ba/b[height<=1080]",
-                        "MP4 · 1080p HD",
-                        Some(1080),
-                        120,
-                    ),
-                    f(
-                        "bv*[height<=720]+ba/b[height<=720]",
-                        "MP4 · 720p HD",
-                        Some(720),
-                        64,
-                    ),
-                    f("ba[ext=m4a]/ba", "Audio · M4A", None, 4),
+                    video(2160, "MP4 · 2160p60 4K", 1229),
+                    video(1440, "MP4 · 1440p60 HD", 640),
+                    video(1080, "MP4 · 1080p60 HD", 118),
+                    video(720, "MP4 · 720p60 HD", 64),
+                    video(360, "MP4 · 360p", 21),
+                    YtFormat {
+                        id: "ba[ext=m4a]/ba".into(),
+                        label: "Audio · M4A".into(),
+                        height: None,
+                        filesize: Some(4 * 1024 * 1024),
+                    },
                 ],
             })
         })

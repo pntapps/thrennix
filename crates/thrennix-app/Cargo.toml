@@ -25,7 +25,11 @@ opener = "0.7"
 arboard = { version = "3", default-features = false }
 notify-rust = "4"
 base64 = "0.22"
+tray-icon = { version = "0.26", default-features = false }
+raw-window-handle = "0.6"
 windows-sys = { version = "0.59", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",

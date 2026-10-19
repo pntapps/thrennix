@@ -101,6 +101,19 @@ pub struct Settings {
     pub theme: ThemeChoice,
     /// Open the per-download progress window when a browser download starts.
     pub show_progress_window: bool,
+    /// Add URL dialog: skip the YouTube quality picker and take the best quality.
+    /// Browser-extension downloads are not affected (the user picks there).
+    pub yt_always_best: bool,
+    /// Show an icon in the notification area (system tray).
+    pub tray_icon: bool,
+    /// The native minimize button hides the window to the tray.
+    pub minimize_to_tray: bool,
+    /// The close button hides the window to the tray; downloads keep running.
+    pub close_to_tray: bool,
+    /// Started with `--minimized` (Windows startup): stay hidden in the tray.
+    pub start_minimized: bool,
+    /// The one-time "still running in the tray" notification was shown.
+    pub tray_hint_shown: bool,
 }
 
 impl Default for Settings {
@@ -116,6 +129,12 @@ impl Default for Settings {
             ask_where: false,
             theme: ThemeChoice::System,
             show_progress_window: true,
+            yt_always_best: false,
+            tray_icon: true,
+            minimize_to_tray: false,
+            close_to_tray: true,
+            start_minimized: true,
+            tray_hint_shown: false,
         }
     }
 }
@@ -583,6 +602,8 @@ impl Shared {
     /// Bring the window to the front (once; Windows may only flash the taskbar button).
     pub fn focus(&self) {
         use eframe::egui::{UserAttentionType, ViewportCommand};
+        // Hidden in the tray: eframe may not run frames, so un-hide with Win32 first.
+        crate::tray::show_window();
         if let Some(ctx) = self.ctx.get() {
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
@@ -1162,6 +1183,16 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn yt_always_best_defaults_off() {
+        assert!(!Settings::default().yt_always_best);
+        // settings.json written before the option existed.
+        let old: Settings = serde_json::from_str(r#"{"max_connections":8}"#).unwrap();
+        assert!(!old.yt_always_best);
+        let on: Settings = serde_json::from_str(r#"{"yt_always_best":true}"#).unwrap();
+        assert!(on.yt_always_best);
+    }
 
     fn rec(kind: Kind) -> Record {
         Record {

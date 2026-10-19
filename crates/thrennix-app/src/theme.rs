@@ -252,6 +252,7 @@ pub enum Icon {
     DeleteDone,
     Settings,
     About,
+    ToTray,
 }
 
 /// Draw `icon` centered in `rect` (about 22px).
@@ -342,6 +343,20 @@ pub fn draw_icon(p: &Painter, icon: Icon, rect: Rect, color: Color32, accent: Co
                 [c + vec2(0.0, -s * 0.12), c + vec2(0.0, s * 0.5)],
                 Stroke::new(2.4_f32, accent),
             );
+        }
+        Icon::ToTray => {
+            // Open tray (U shape) with a down arrow dropping into it.
+            let tray = [
+                c + vec2(-s * 0.85, s * 0.2),
+                c + vec2(-s * 0.85, s * 0.85),
+                c + vec2(s * 0.85, s * 0.85),
+                c + vec2(s * 0.85, s * 0.2),
+            ];
+            p.add(egui::Shape::line(tray.to_vec(), stroke));
+            let a = Stroke::new(2.2_f32, accent);
+            p.line_segment([c + vec2(0.0, -s * 0.9), c + vec2(0.0, s * 0.45)], a);
+            p.line_segment([c + vec2(-s * 0.4, s * 0.05), c + vec2(0.0, s * 0.45)], a);
+            p.line_segment([c + vec2(s * 0.4, s * 0.05), c + vec2(0.0, s * 0.45)], a);
         }
     }
 }
