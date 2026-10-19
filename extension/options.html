@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Thrennix options</title>
+  <link rel="stylesheet" href="ui.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <h1><img src="icons/icon-48.png" width="28" height="28" alt=""> Thrennix options</h1>
+
+    <section>
+      <label class="row">
+        <span>
+          <strong>Catch browser downloads</strong><br>
+          <span class="muted">Hand matching downloads to the Thrennix app. If the app isn't reachable the browser keeps the download.</span>
+        </span>
+        <span class="switch"><input type="checkbox" id="catchEnabled"><span class="slider"></span></span>
+      </label>
+
+      <label class="field">
+        <strong>Minimum file size (MB)</strong>
+        <span class="muted">Smaller downloads stay in the browser. Downloads of unknown size are caught.</span>
+        <input type="number" id="minSizeMB" min="0" step="0.5">
+      </label>
+
+      <label class="field">
+        <strong>File types to catch</strong>
+        <span class="muted">Extensions separated by spaces, commas or new lines.</span>
+        <textarea id="extensions" rows="6" spellcheck="false"></textarea>
+        <button type="button" class="secondary small" id="resetExt">Reset to defaults</button>
+      </label>
+
+      <label class="field">
+        <strong>Sites where catching is disabled</strong>
+        <span class="muted">One domain per line (subdomains included), e.g. <code>example.com</code>.</span>
+        <textarea id="disabledSites" rows="5" spellcheck="false"></textarea>
+      </label>
+
+      <label class="row">
+        <span>
+          <strong>Show "Download video" button on videos</strong><br>
+          <span class="muted">Floating button over playing videos when a stream is detected.</span>
+        </span>
+        <span class="switch"><input type="checkbox" id="videoButton"><span class="slider"></span></span>
+      </label>
+    </section>
+
+    <div class="actions">
+      <button type="button" id="save">Save</button>
+      <span id="saved" class="muted" role="status"></span>
+    </div>
+
+    <details>
+      <summary>Sites Thrennix never downloads media from</summary>
+      <p class="muted">These services use DRM and/or prohibit downloading in their terms, so the video button and media detection are always off there.</p>
+      <p id="excluded" class="mono"></p>
+    </details>
+  </main>
+  <script src="common.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

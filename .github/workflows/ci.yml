@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # thrennix-media's integration tests skip themselves when ffmpeg is missing;
+      # install it so they actually run in CI.
+      - name: Install ffmpeg
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install ffmpeg failed ($LASTEXITCODE)" }
+            $env:Path = "$env:ChocolateyInstall\bin;$env:Path"
+          }
+          $ff = (Get-Command ffmpeg -ErrorAction Stop).Source
+          $probe = Join-Path (Split-Path -Parent $ff) 'ffprobe.exe'
+          if (-not (Test-Path $probe)) { throw "ffprobe.exe not found next to $ff" }
+          & $ff -hide_banner -version | Select-Object -First 1
+          "THRENNIX_FFMPEG=$ff" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  extension:
+    name: Extension (syntax, manifest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+
+      - name: node --check
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(extension/*.js)
+          if [ ${#files[@]} -eq 0 ]; then echo "no extension/*.js files found"; exit 1; fi
+          for f in "${files[@]}"; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
+      - name: Validate manifest.json
+        shell: bash
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = 'extension';
+          const fail = (msg) => { console.error(`manifest.json: ${msg}`); process.exitCode = 1; };
+
+          let m;
+          try {
+            m = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+          } catch (e) {
+            console.error(`manifest.json is not valid JSON: ${e.message}`);
+            process.exit(1);
+          }
+
+          if (m.manifest_version !== 3) fail(`manifest_version must be 3, got ${m.manifest_version}`);
+          for (const k of ['name', 'version', 'description']) {
+            if (typeof m[k] !== 'string' || !m[k].trim()) fail(`missing or empty "${k}"`);
+          }
+          if (typeof m.version === 'string' && !/^\d+(\.\d+){0,3}$/.test(m.version)) {
+            fail(`version "${m.version}" must be 1-4 dot-separated integers`);
+          }
+          if (!Array.isArray(m.permissions) || !m.permissions.includes('nativeMessaging')) {
+            fail('permissions must include "nativeMessaging"');
+          }
+          const geckoId = m.browser_specific_settings?.gecko?.id;
+          if (geckoId !== 'thrennix@thrennix.app') fail(`browser_specific_settings.gecko.id must be "thrennix@thrennix.app", got ${geckoId}`);
+
+          // Every file the manifest points at must exist.
+          const refs = [];
+          const add = (v) => { if (typeof v === 'string') refs.push(v); };
+          Object.values(m.icons || {}).forEach(add);
+          Object.values(m.action?.default_icon || {}).forEach(add);
+          add(m.action?.default_popup);
+          add(m.options_ui?.page);
+          add(m.options_page);
+          add(m.background?.service_worker);
+          (m.background?.scripts || []).forEach(add);
+          for (const cs of m.content_scripts || []) {
+            (cs.js || []).forEach(add);
+            (cs.css || []).forEach(add);
+          }
+          for (const r of refs) {
+            if (!fs.existsSync(path.join(dir, r))) fail(`referenced file not found: ${r}`);
+          }
+
+          // The pinned Chromium ID must match extension-id.txt (the native host allows only that ID).
+          const idFile = path.join(dir, 'extension-id.txt');
+          if (m.key && fs.existsSync(idFile)) {
+            const crypto = require('crypto');
+            const der = Buffer.from(m.key, 'base64');
+            const hex = crypto.createHash('sha256').update(der).digest('hex').slice(0, 32);
+            const id = [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
+            const pinned = fs.readFileSync(idFile, 'utf8').trim();
+            if (id !== pinned) fail(`"key" gives extension ID ${id}, but extension-id.txt says ${pinned}`);
+          }
+
+          if (!process.exitCode) console.log(`manifest.json OK (${m.name} ${m.version}, ${refs.length} file references)`);
+          EOF

@@ -1,0 +1,72 @@
+{
+  "manifest_version": 3,
+  "name": "Thrennix Download Manager",
+  "short_name": "Thrennix",
+  "version": "0.1.0",
+  "description": "Send downloads and detected videos to the Thrennix download manager app.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtn7IwytyaSMWiAWLTX1nMZBvWEGLZnz530oInlRWjBKQzwJRl+ytkGKwTYovMCWi1ijimmhaZLtdxUW8OjRtfeK0XHfQmSA3ywkC2tKblVmgYa8hQ72Jg/pYPqgEmL1LCELWEpdkl5mAovReHNUsyro5y2IuoQrR6iEtg2x9AvhyRi/MubVDb9IYcbcCTyNtbM2PIjcGlhYTCp06f0S/CjicS5PS0tK9KOTKObO9hcyi1GbsDH0+NVSrZ78guH9MZVN/cAMgvdUxo+bDLTD8gfADbGgpT3VSnIWCOIyXWL3Q/sxm6F+iV4cqISKptM9H6n8hoGDLgO5Y7nGaBYPIZQIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "downloads",
+    "nativeMessaging",
+    "cookies",
+    "contextMenus",
+    "storage",
+    "webRequest",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": [
+      "common.js",
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "Thrennix",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "common.js",
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "thrennix@thrennix.app",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

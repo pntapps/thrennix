@@ -1,0 +1,30 @@
+[package]
+name = "thrennix-testserver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "thrennix_testserver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "thrennix-testserver"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rcgen = "0.13"
+
+[dev-dependencies]
+reqwest.workspace = true

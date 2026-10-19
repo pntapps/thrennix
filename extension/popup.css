@@ -1,0 +1,31 @@
+body { width: 340px; padding: 10px 12px; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+header strong { font-size: 15px; }
+.status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.status.ok .dot { background: var(--ok); }
+.status.err .dot { background: var(--err); }
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+section { margin-top: 12px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 6px; }
+#media { max-height: 300px; overflow: auto; }
+#media p { margin: 4px 0; }
+.item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line);
+}
+.item:last-child { border-bottom: 0; }
+.item .info { flex: 1; min-width: 0; }
+.item .label { font-weight: 600; }
+.item .url { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item button { flex: none; padding: 4px 10px; }
+footer { display: flex; justify-content: space-between; margin-top: 12px; font-size: 12px; }
+.spin {
+  display: inline-block; width: 11px; height: 11px; margin-right: 8px; vertical-align: -1px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: thrennix-spin .8s linear infinite;
+}
+@keyframes thrennix-spin { to { transform: rotate(360deg); } }
+code { font-family: ui-monospace, Consolas, monospace; user-select: all; }

@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  windows:
+    name: Build and publish (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ env.TARGET }}
+
+      # Windows PowerShell 5.1 on purpose: the packaging scripts must work there.
+      - name: Check tag matches the workspace version
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $section = ''
+          $version = $null
+          foreach ($line in Get-Content Cargo.toml) {
+            $t = $line.Trim()
+            if ($t -match '^\[(.+)\]$') { $section = $Matches[1]; continue }
+            if ($section -eq 'workspace.package' -and $t -match '^version\s*=\s*"([^"]+)"') { $version = $Matches[1]; break }
+          }
+          if (-not $version) { throw 'No [workspace.package] version in Cargo.toml' }
+          if ($tag -ne $version) { throw "Tag v$tag does not match Cargo.toml version $version" }
+          $ext = (Get-Content extension\manifest.json -Raw | ConvertFrom-Json).version
+          if ($ext -ne ($version -replace '[-+].*$', '')) { Write-Warning "extension/manifest.json version $ext differs from $version" }
+          "THRENNIX_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ env.TARGET }} -p thrennix-app -p thrennix-cli
+
+      - name: Package
+        shell: powershell
+        run: .\packaging\package.ps1 -BinDir "target\${{ env.TARGET }}\release" -Version $env:THRENNIX_VERSION
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thrennix-${{ env.THRENNIX_VERSION }}-windows-x64
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Thrennix ${{ env.THRENNIX_VERSION }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/thrennix-${{ env.THRENNIX_VERSION }}-windows-x64.zip
+            dist/thrennix-extension-${{ env.THRENNIX_VERSION }}.zip
+            dist/SHA256SUMS.txt

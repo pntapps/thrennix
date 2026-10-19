@@ -1,0 +1,39 @@
+[package]
+name = "thrennix-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "thrennix"
+path = "src/main.rs"
+
+[dependencies]
+thrennix-core.workspace = true
+thrennix-media.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+eframe = "0.31"
+egui_extras = { version = "0.31", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+directories = "6"
+rfd = "0.15"
+winreg = "0.55"
+opener = "0.7"
+arboard = { version = "3", default-features = false }
+notify-rust = "4"
+base64 = "0.22"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_System_Console",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

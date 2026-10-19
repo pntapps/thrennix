@@ -1,0 +1,21 @@
+body { padding: 24px 16px; }
+main { max-width: 640px; margin: 0 auto; }
+h1 { display: flex; align-items: center; gap: 10px; font-size: 20px; margin: 0 0 16px; }
+section { display: flex; flex-direction: column; gap: 14px; }
+.row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.field { display: flex; flex-direction: column; gap: 4px; }
+input[type="number"], textarea {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; width: 100%;
+}
+input[type="number"] { max-width: 140px; }
+textarea { font-family: ui-monospace, Consolas, monospace; resize: vertical; }
+button.small { align-self: flex-start; padding: 4px 10px; font-size: 12px; }
+.actions { display: flex; align-items: center; gap: 12px; margin: 18px 0; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+code { font-family: ui-monospace, Consolas, monospace; }

@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/thrennix-core",
+    "crates/thrennix-media",
+    "crates/thrennix-cli",
+    "crates/thrennix-app",
+    "crates/thrennix-testserver",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/pntapps/thrennix"
+
+[workspace.dependencies]
+thrennix-core = { path = "crates/thrennix-core" }
+thrennix-media = { path = "crates/thrennix-media" }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "cookies"] }
+futures-util = "0.3"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
