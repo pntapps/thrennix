@@ -251,6 +251,7 @@ pub enum Icon {
     Delete,
     DeleteDone,
     Settings,
+    About,
 }
 
 /// Draw `icon` centered in `rect` (about 22px).
@@ -332,6 +333,15 @@ pub fn draw_icon(p: &Painter, icon: Icon, rect: Rect, color: Color32, accent: Co
             }
             p.circle_stroke(c, s * 0.6, Stroke::new(2.2_f32, color));
             p.circle_filled(c, s * 0.22, color);
+        }
+        Icon::About => {
+            // "i" in a circle.
+            p.circle_stroke(c, s * 0.9, Stroke::new(2.0_f32, accent));
+            p.circle_filled(c + vec2(0.0, -s * 0.42), s * 0.13, accent);
+            p.line_segment(
+                [c + vec2(0.0, -s * 0.12), c + vec2(0.0, s * 0.5)],
+                Stroke::new(2.4_f32, accent),
+            );
         }
     }
 }

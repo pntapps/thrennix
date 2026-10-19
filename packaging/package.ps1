@@ -6,7 +6,9 @@
     Collects thrennix.exe, thrennix-cli.exe, the licenses, README.md, the browser extension
     (without .keys/ and tools/) and the install/uninstall scripts into
     dist\thrennix-<version>-windows-x64\, zips it, builds a separate
-    thrennix-extension-<version>.zip for store upload, and writes dist\SHA256SUMS.txt.
+    thrennix-extension-<version>.zip for store upload, and writes dist\SHA256SUMS.txt
+    (which also covers dist\Thrennix-Setup-<version>.exe when build-installer.ps1 ran first;
+    build-installer.ps1 adds its line itself when it runs after this script).
 
     Compatible with Windows PowerShell 5.1 and PowerShell 7+.
 
@@ -271,7 +273,11 @@ if (-not $DryRun) { New-ZipFromDir $ExtStage $ExtZip '' }
 Write-Step "Writing $SumsFile"
 if (-not $DryRun) {
     $sumLines = @()
-    foreach ($z in @($MainZip, $ExtZip)) {
+    # Include the installer (built by build-installer.ps1) when it is already there.
+    $hashed = @($MainZip, $ExtZip)
+    $SetupExe = Join-Path $OutDir "Thrennix-Setup-$Version.exe"
+    if (Test-Path -LiteralPath $SetupExe) { $hashed = @($SetupExe) + $hashed }
+    foreach ($z in $hashed) {
         $sumLines += ('{0}  {1}' -f (Get-Sha256 $z), (Split-Path -Leaf $z))
     }
     $utf8 = New-Object System.Text.UTF8Encoding($false)

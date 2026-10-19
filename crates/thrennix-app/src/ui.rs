@@ -14,6 +14,8 @@ use eframe::egui::{
 use egui_extras::{Column, TableBuilder};
 use thrennix_core::Status;
 
+use crate::about;
+use crate::brand;
 use crate::details::{self, DetailsAction, DetailsState};
 use crate::fmt;
 use crate::protocol::{validate_url, Kind};
@@ -107,6 +109,8 @@ pub struct ThrennixApp {
     new_url: Option<(u64, String, String, Option<String>)>,
     confirm_restart: Option<(u64, String)>,
     scrolled_to: Option<Instant>,
+    about_open: bool,
+    logo: Option<egui::TextureHandle>,
 }
 
 impl ThrennixApp {
@@ -135,7 +139,15 @@ impl ThrennixApp {
             new_url: None,
             confirm_restart: None,
             scrolled_to: None,
+            about_open: false,
+            logo: None,
         }
+    }
+
+    /// Open the About window right away (demo `--about`, for screenshots).
+    pub fn with_about(mut self, open: bool) -> Self {
+        self.about_open = open;
+        self
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
@@ -251,6 +263,15 @@ impl ThrennixApp {
                     self.open_settings();
                 }
             }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(4.0);
+                if toolbar_button(ui, Icon::About, "About", true)
+                    .on_hover_text("About Thrennix (F1)")
+                    .clicked()
+                {
+                    self.about_open = !self.about_open;
+                }
+            });
         });
         ui.add_space(2.0);
     }
@@ -572,6 +593,15 @@ impl ThrennixApp {
                 ui.separator();
                 ui.label(t(format!("{} selected", self.selected.len())));
             }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add(egui::Hyperlink::from_label_and_url(
+                    RichText::new(format!("by {}", brand::PUBLISHER))
+                        .small()
+                        .color(pal.weak_text),
+                    brand::WEBSITE,
+                ))
+                .on_hover_text(brand::WEBSITE);
+            });
         });
     }
 
@@ -622,6 +652,7 @@ impl ThrennixApp {
         let mut commit = false;
         let mut run: Option<&'static str> = None;
         let mut recheck = false;
+        let mut show_about = false;
         let yt = self
             .yt_status
             .lock()
@@ -719,7 +750,38 @@ impl ThrennixApp {
                         });
                         ui.end_row();
                     });
+                ui.add_space(4.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("About").strong());
+                    ui.label(
+                        RichText::new(format!(
+                            "Thrennix {} by {}",
+                            brand::VERSION,
+                            brand::PUBLISHER
+                        ))
+                        .color(ui_palette(ui).weak_text),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("About Thrennix…").clicked() {
+                            show_about = true;
+                        }
+                    });
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    for (i, (label, url)) in brand::LINKS.into_iter().enumerate() {
+                        if i > 0 {
+                            ui.label(RichText::new("·").color(ui_palette(ui).weak_text));
+                        }
+                        ui.hyperlink_to(RichText::new(label).color(ui_palette(ui).accent), url)
+                            .on_hover_text(url);
+                    }
+                });
             });
+        if show_about {
+            self.about_open = true;
+        }
         if let Some(cmd) = run {
             // Visible console so the user sees (and can answer) winget.
             let spawned = Command::new("cmd.exe")
@@ -1002,6 +1064,44 @@ impl ThrennixApp {
         }
     }
 
+    /// The About window, as its own OS window.
+    fn about_window(&mut self, ctx: &egui::Context) {
+        if !self.about_open {
+            return;
+        }
+        let logo = self.logo.get_or_insert_with(|| about::logo(ctx)).clone();
+        let builder = ViewportBuilder::default()
+            .with_title(about::TITLE)
+            .with_inner_size(about::SIZE)
+            .with_resizable(false)
+            .with_minimize_button(false)
+            .with_maximize_button(false)
+            .with_icon(crate::app_icon());
+        let close = ctx.show_viewport_immediate(
+            ViewportId::from_hash_of("thrennix-about"),
+            builder,
+            |ctx, class| {
+                if class == ViewportClass::Embedded {
+                    let mut open = true;
+                    let mut close = false;
+                    egui::Window::new(about::TITLE)
+                        .open(&mut open)
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(ctx, |ui| close = about::show(ui, &logo));
+                    close || !open
+                } else {
+                    let mut close = false;
+                    egui::CentralPanel::default().show(ctx, |ui| close = about::show(ui, &logo));
+                    close || ctx.input(|i| i.viewport().close_requested())
+                }
+            },
+        );
+        if close {
+            self.about_open = false;
+        }
+    }
+
     fn apply(&mut self, actions: Vec<Action>, ctx: &egui::Context, rows: &[RowView]) {
         for a in actions {
             match a {
@@ -1035,6 +1135,9 @@ impl ThrennixApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context, rows: &[RowView]) {
+        if ctx.input(|i| i.key_pressed(Key::F1)) {
+            self.about_open = true;
+        }
         if ctx.wants_keyboard_input() || self.add.is_some() || self.remove.is_some() {
             return;
         }
@@ -1124,6 +1227,7 @@ impl eframe::App for ThrennixApp {
         self.apply(actions, ctx, &rows);
         self.shortcuts(ctx, &rows);
         self.details_windows(ctx, &rows);
+        self.about_window(ctx);
 
         // Only tick while something is moving; idle uses no CPU.
         if rows.iter().any(|r| r.running) {

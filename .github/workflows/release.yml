@@ -58,14 +58,46 @@ jobs:
         shell: powershell
         run: .\packaging\package.ps1 -BinDir "target\${{ env.TARGET }}\release" -Version $env:THRENNIX_VERSION
 
+      # windows-latest usually ships Inno Setup 6; install it only when ISCC.exe is missing.
+      - name: Ensure Inno Setup 6
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not $iscc) {
+            Write-Host 'Inno Setup not found; installing with Chocolatey'
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed (exit $LASTEXITCODE)" }
+            $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw 'ISCC.exe still not found after installing Inno Setup' }
+          Write-Host "ISCC: $iscc"
+          "ISCC_EXE=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Runs after package.ps1, so it also adds the installer to dist\SHA256SUMS.txt.
+      - name: Build installer
+        shell: powershell
+        run: .\packaging\build-installer.ps1 -SkipBuild -BinDir "target\${{ env.TARGET }}\release" -Version $env:THRENNIX_VERSION -Iscc $env:ISCC_EXE
+
       - uses: actions/upload-artifact@v4
         with:
           name: thrennix-${{ env.THRENNIX_VERSION }}-windows-x64
           path: |
+            dist/Thrennix-Setup-*.exe
             dist/*.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
+      # The body is placed above GitHub's generated release notes.
       - uses: softprops/action-gh-release@v2
         with:
           name: Thrennix ${{ env.THRENNIX_VERSION }}
@@ -73,7 +105,22 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
+          body: |
+            ## Install
+
+            Download **Thrennix-Setup-${{ env.THRENNIX_VERSION }}.exe** and run it. Developed by [PNT Apps](https://www.pntapps.com/).
+
+            - Installs for the current user, no administrator rights needed (choose "Install for all users" in the first dialog if you prefer).
+            - Optionally installs ffmpeg and yt-dlp with winget for video and YouTube downloads.
+            - Upgrading keeps your settings and download history.
+
+            > **Note:** the installer is not code-signed yet, so Windows SmartScreen may show "Windows protected your PC". Click **More info** → **Run anyway**. You can check the download against `SHA256SUMS.txt`.
+
+            Prefer a portable copy? Use `thrennix-${{ env.THRENNIX_VERSION }}-windows-x64.zip` and run `install.ps1`. The store-upload build of the browser extension is `thrennix-extension-${{ env.THRENNIX_VERSION }}.zip`.
+
+            [Privacy](https://www.pntapps.com/privacy) · [Terms](https://www.pntapps.com/terms)
           files: |
+            dist/Thrennix-Setup-${{ env.THRENNIX_VERSION }}.exe
             dist/thrennix-${{ env.THRENNIX_VERSION }}-windows-x64.zip
             dist/thrennix-extension-${{ env.THRENNIX_VERSION }}.zip
             dist/SHA256SUMS.txt

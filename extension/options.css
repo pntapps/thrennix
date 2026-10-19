@@ -19,3 +19,11 @@ details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--muted); }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 code { font-family: ui-monospace, Consolas, monospace; }
+.credits {
+  margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+.credits p { margin: 0 0 6px; }
+.credits nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.credits a { color: var(--accent); text-decoration: none; }
+.credits a:hover { text-decoration: underline; }

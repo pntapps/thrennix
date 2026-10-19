@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! thrennix.exe: GUI, native messaging host, and host (un)registration.
 
+mod about;
 mod args;
 mod backend;
+mod brand;
 mod details;
 mod fmt;
 mod host;
@@ -80,7 +82,7 @@ fn run_gui(demo: bool) -> i32 {
     }
 
     let mut settings = state::Settings::load();
-    // Demo-only extras for screenshots: --light / --dark / --details (never persisted).
+    // Demo-only extras for screenshots: --light / --dark / --details / --about (never persisted).
     let extra: Vec<String> = std::env::args().skip(2).collect();
     if demo {
         if extra.iter().any(|a| a == "--light") {
@@ -120,11 +122,16 @@ fn run_gui(demo: bool) -> i32 {
             .with_icon(app_icon()),
         ..Default::default()
     };
+    let open_about = demo && extra.iter().any(|a| a == "--about");
     let app_shared = shared.clone();
     let result = eframe::run_native(
         title,
         options,
-        Box::new(move |cc| Ok(Box::new(ui::ThrennixApp::new(cc, app_shared)))),
+        Box::new(move |cc| {
+            Ok(Box::new(
+                ui::ThrennixApp::new(cc, app_shared).with_about(open_about),
+            ))
+        }),
     );
     shared.shutdown();
     match result {
