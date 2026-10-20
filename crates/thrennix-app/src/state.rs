@@ -12,8 +12,10 @@ use thrennix_core::{DownloadRequest, EngineConfig, Error, Progress, SegmentInfo,
 use tokio::runtime::Handle;
 
 use crate::backend::{Backend, Job};
+use crate::netdrive::{self, NetDrive, NetJob};
 use crate::protocol::{sanitize_file_name, validate_url, DownloadMsg, Kind};
 use crate::theme::{classify, Category, ThemeChoice};
+use crate::touch::TouchLayout;
 
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
@@ -114,6 +116,10 @@ pub struct Settings {
     pub start_minimized: bool,
     /// The one-time "still running in the tray" notification was shown.
     pub tray_hint_shown: bool,
+    /// Finger-sized layout (rows, buttons, check boxes).
+    pub touch_layout: TouchLayout,
+    /// Saved network folders (SMB shares) with their sign-in.
+    pub network_drives: Vec<NetDrive>,
 }
 
 impl Default for Settings {
@@ -135,6 +141,8 @@ impl Default for Settings {
             close_to_tray: true,
             start_minimized: true,
             tray_hint_shown: false,
+            touch_layout: TouchLayout::Auto,
+            network_drives: Vec::new(),
         }
     }
 }
@@ -540,6 +548,20 @@ impl Shared {
         }
     }
 
+    /// Sign in to the saved network drives in the background, so their folders open
+    /// straight away after a reboot.
+    pub fn connect_network_drives(&self) {
+        let drives = self.settings().network_drives;
+        if !drives.is_empty() {
+            self.rt.spawn_blocking(move || {
+                for d in &drives {
+                    // A failure shows up later, on the download that needs the drive.
+                    let _ = netdrive::connect(d);
+                }
+            });
+        }
+    }
+
     pub fn probe_yt(&self, url: String) -> crate::backend::ProbeFuture {
         self.backend.probe_yt(url)
     }
@@ -723,8 +745,11 @@ impl Shared {
             // Too many waiting dialogs: fall through to the default folder.
         }
 
-        std::fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("cannot create {}: {e}", target_dir.display()))?;
+        // A network folder is created after signing in, off the UI thread (NetJob).
+        if netdrive::drive_for(&settings.network_drives, &target_dir).is_none() {
+            std::fs::create_dir_all(&target_dir)
+                .map_err(|e| format!("cannot create {}: {e}", target_dir.display()))?;
+        }
         let rec = self.new_record(nd, target_dir, Status::Probing);
         {
             let mut items = lock(&self.items);
@@ -917,10 +942,16 @@ impl Shared {
         if item.job.is_some() {
             return;
         }
-        let _ = std::fs::create_dir_all(&item.rec.dest_dir);
-        let job = self
-            .backend
-            .start(item.rec.kind, item.rec.request(), item.rec.format.clone());
+        let (kind, req, format) = (item.rec.kind, item.rec.request(), item.rec.format.clone());
+        let drive =
+            netdrive::drive_for(&lock(&self.settings).network_drives, &item.rec.dest_dir).cloned();
+        let job: Arc<dyn Job> = match drive {
+            Some(d) => NetJob::start(&self.rt, d, self.backend.clone(), kind, req, format),
+            None => {
+                let _ = std::fs::create_dir_all(&item.rec.dest_dir);
+                self.backend.start(kind, req, format)
+            }
+        };
         self.attach_locked(item, job);
     }
 

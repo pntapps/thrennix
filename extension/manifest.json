@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Thrennix Download Manager",
   "short_name": "Thrennix",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Send downloads and detected videos to the Thrennix download manager app.",
   "author": "PNT Apps",
   "homepage_url": "https://www.pntapps.com/",

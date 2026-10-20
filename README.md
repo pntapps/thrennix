@@ -24,6 +24,8 @@ Prefer not to run an installer? The release also has a `thrennix-<version>-windo
 - **Pause / resume**, even after closing the app or rebooting, and "New URL…" for expired links
 - **Browser extension** (Chrome, Edge, Firefox): catches downloads and detects videos (direct files, HLS and DASH)
 - **YouTube** (and other sites yt-dlp supports): a "Download this video" button with an IDM-style quality list, up to 4K (needs `yt-dlp`)
+- **Network drives**: download straight to a shared folder on your router, NAS or another PC (SMB / Samba); shared folders on the network are found automatically
+- **Touch screens**: finger-friendly taps, press-and-hold for the menu, a roomier layout and the on-screen keyboard on Windows tablets
 - **Light and dark themes**, a per-download window showing progress by connection, and one small `.exe`
 
 DRM-protected services aren't supported.

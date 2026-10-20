@@ -2,6 +2,7 @@
 //! thrennix.exe: GUI, native messaging host, and host (un)registration.
 
 mod about;
+mod add_drive;
 mod add_url;
 mod args;
 mod backend;
@@ -10,12 +11,14 @@ mod details;
 mod fmt;
 mod host;
 mod ipc;
+mod netdrive;
 mod nm;
 mod protocol;
 mod register;
 mod secret;
 mod state;
 mod theme;
+mod touch;
 mod tray;
 mod ui;
 mod winsec;
@@ -110,6 +113,9 @@ fn run_gui(demo: bool) -> i32 {
         !demo,
     ));
     rt.spawn(ipc::serve(server, shared.clone()));
+    if !demo {
+        shared.connect_network_drives();
+    }
     if demo {
         shared.seed_demo(extra.iter().any(|a| a == "--details"));
     }

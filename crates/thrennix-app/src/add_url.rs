@@ -11,7 +11,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, vec2, Align2, Key, RichText, TextEdit};
+use eframe::egui::{self, vec2, Key, RichText, TextEdit};
 
 use crate::backend::YtInfoOut;
 use crate::fmt;
@@ -234,7 +234,8 @@ fn run_in_console(cmd: &str) -> Result<(), String> {
 
 /// Draw the dialog. Returns false once it should close.
 pub fn show(ctx: &egui::Context, d: &mut AddDialog, shared: &Arc<Shared>) -> bool {
-    let always_best = shared.settings().yt_always_best;
+    let settings = shared.settings();
+    let (always_best, drives) = (settings.yt_always_best, settings.network_drives);
     d.track_url();
     d.poll();
     let url = d.url.trim().to_string();
@@ -250,10 +251,11 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, shared: &Arc<Shared>) -> boo
 
     let (mut start, mut cancel, mut install, mut retry) = (false, false, false, false);
     let picker = is_yt && !always_best;
+    let anchor = crate::touch::typing_dialog_anchor();
     egui::Window::new("Add download")
         .collapsible(false)
         .resizable(false)
-        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .anchor(anchor.0, anchor.1)
         .show(ctx, |ui| {
             egui::Grid::new("add")
                 .num_columns(2)
@@ -282,6 +284,16 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, shared: &Arc<Shared>) -> boo
                             {
                                 d.dir = p;
                             }
+                        }
+                        if !drives.is_empty() {
+                            ui.menu_button("Network drive", |ui| {
+                                for nd in &drives {
+                                    if ui.button(&nd.path).clicked() {
+                                        d.dir = nd.dir();
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
                         }
                     });
                     ui.end_row();

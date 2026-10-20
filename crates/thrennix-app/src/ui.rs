@@ -15,6 +15,7 @@ use egui_extras::{Column, TableBuilder};
 use thrennix_core::Status;
 
 use crate::about;
+use crate::add_drive::{self, AddDriveDialog};
 use crate::add_url::{self, AddDialog};
 use crate::brand;
 use crate::details::{self, DetailsAction, DetailsState};
@@ -22,12 +23,15 @@ use crate::fmt;
 use crate::protocol::{validate_url, Kind};
 use crate::state::{reveal, RowView, Settings, Shared};
 use crate::theme::{self, toolbar_button, ui_palette, Category, Icon, ThemeChoice};
+use crate::touch::{TouchLayout, TouchState};
 
 const TOAST_TIME: Duration = Duration::from_secs(8);
 const HIGHLIGHT_TIME: Duration = Duration::from_millis(2500);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 const ROW_HEIGHT: f32 = 26.0;
+/// Rows and sidebar entries with the touch layout: comfortably finger-sized.
+const ROW_HEIGHT_TOUCH: f32 = 38.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Filter {
@@ -89,6 +93,8 @@ enum Action {
     ResumeMany(Vec<u64>),
     SelectAll,
     SelectNone,
+    /// Touch: taps add/remove rows (there is no Ctrl or Shift on a tablet).
+    SelectMultiple(u64),
 }
 
 pub struct ThrennixApp {
@@ -109,6 +115,12 @@ pub struct ThrennixApp {
     scrolled_to: Option<Instant>,
     about_open: bool,
     logo: Option<egui::TextureHandle>,
+    touch: TouchState,
+    /// Finger-sized layout this frame.
+    roomy: bool,
+    /// Taps toggle rows, as if Ctrl were held.
+    select_mode: bool,
+    add_drive: Option<AddDriveDialog>,
 }
 
 impl ThrennixApp {
@@ -116,11 +128,8 @@ impl ThrennixApp {
         let _ = shared.ctx.set(cc.egui_ctx.clone());
         let choice = shared.settings().theme;
         theme::apply(&cc.egui_ctx, choice);
-        cc.egui_ctx.all_styles_mut(|s| {
-            s.spacing.item_spacing = vec2(8.0, 6.0);
-            s.spacing.button_padding = vec2(10.0, 4.0);
-            s.spacing.interact_size.y = 24.0;
-        });
+        // Spacing (mouse or finger-sized) is applied by `TouchState::frame`.
+        let touch = TouchState::new(&cc.egui_ctx);
         Self {
             shared,
             toast: None,
@@ -139,6 +148,10 @@ impl ThrennixApp {
             scrolled_to: None,
             about_open: false,
             logo: None,
+            touch,
+            roomy: false,
+            select_mode: false,
+            add_drive: None,
         }
     }
 
@@ -296,10 +309,11 @@ impl ThrennixApp {
         ui.label(RichText::new("Categories").strong().color(pal.weak_text));
         ui.add_space(4.0);
         let count = |f: Filter| rows.iter().filter(|r| f.matches(r)).count();
+        let height = if self.roomy { ROW_HEIGHT_TOUCH } else { 24.0 };
         let mut entry = |ui: &mut egui::Ui, f: Filter, label: &str, indent: f32| {
             let selected = self.filter == f;
             let (rect, resp) =
-                ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+                ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
             let p = ui.painter();
             if selected {
                 p.rect_filled(rect, 4.0, ui.visuals().selection.bg_fill);
@@ -391,7 +405,15 @@ impl ThrennixApp {
                 }
             }
         }
-        let modifiers = ui.input(|i| i.modifiers);
+        let mut modifiers = ui.input(|i| i.modifiers);
+        if self.select_mode {
+            modifiers.command = true;
+        }
+        let (row_height, header_height) = if self.roomy {
+            (ROW_HEIGHT_TOUCH, 32.0)
+        } else {
+            (ROW_HEIGHT, 24.0)
+        };
         // Registered before the rows so they stay on top: clicks on empty space below the
         // rows clear the selection, and right-click there offers Select all.
         let background = ui.interact(ui.max_rect(), ui.id().with("table_bg"), Sense::click());
@@ -445,7 +467,7 @@ impl ThrennixApp {
         ];
         let mut clicked_sort = None;
         table
-            .header(24.0, |mut header| {
+            .header(header_height, |mut header| {
                 for (label, key) in headers {
                     header.col(|ui| {
                         table_cell(ui);
@@ -465,7 +487,7 @@ impl ThrennixApp {
                 }
             })
             .body(|body| {
-                body.rows(ROW_HEIGHT, view.len(), |mut row| {
+                body.rows(row_height, view.len(), |mut row| {
                     let r = view[row.index()];
                     row.set_selected(self.selected.contains(&r.id));
                     row.col(|ui| {
@@ -510,7 +532,7 @@ impl ThrennixApp {
                     if resp.clicked() {
                         self.click_row(r.id, modifiers, &view);
                     }
-                    if resp.double_clicked() {
+                    if resp.double_clicked() && !self.select_mode {
                         match (&r.status, &r.path) {
                             (Status::Completed, Some(p)) => actions.push(Action::Open(p.clone())),
                             _ => actions.push(Action::Details(r.id)),
@@ -633,6 +655,9 @@ impl ThrennixApp {
             );
         }
         ui.separator();
+        if !self.select_mode {
+            item(ui, "Select multiple", true, Action::SelectMultiple(r.id));
+        }
         item(ui, "Select all (Ctrl+A)", true, Action::SelectAll);
         ui.separator();
         let n = targets.len();
@@ -650,7 +675,7 @@ impl ThrennixApp {
 
     // ------------------------------------------------------------ status bar
 
-    fn status_bar(&self, ui: &mut egui::Ui, rows: &[RowView]) {
+    fn status_bar(&mut self, ui: &mut egui::Ui, rows: &[RowView]) {
         let pal = ui_palette(ui);
         let active = rows.iter().filter(|r| r.running).count();
         let waiting = rows
@@ -670,6 +695,13 @@ impl ThrennixApp {
             if !self.selected.is_empty() {
                 ui.separator();
                 ui.label(t(format!("{} selected", self.selected.len())));
+            }
+            if self.select_mode {
+                ui.separator();
+                ui.label(RichText::new("Tap downloads to select them").small());
+                if ui.button("Done").clicked() {
+                    self.select_mode = false;
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add(egui::Hyperlink::from_label_and_url(
@@ -693,6 +725,26 @@ impl ThrennixApp {
     fn close_settings(&mut self) {
         if let Some(s) = self.settings_edit.take() {
             self.shared.apply_settings(s);
+        }
+    }
+
+    /// Remember a network drive that just passed its connect test.
+    fn save_network_drive(&mut self, drive: crate::netdrive::NetDrive, make_default: bool) {
+        // Keep an open Settings window in step with what gets saved.
+        let mut s = self
+            .settings_edit
+            .clone()
+            .unwrap_or_else(|| self.shared.settings());
+        s.network_drives
+            .retain(|d| !d.path.eq_ignore_ascii_case(&drive.path));
+        if make_default {
+            s.download_dir = drive.dir();
+        }
+        self.toast(format!("Connected to {}", drive.path));
+        s.network_drives.push(drive);
+        self.shared.apply_settings(s.clone());
+        if self.settings_edit.is_some() {
+            self.settings_edit = Some(s);
         }
     }
 
@@ -731,6 +783,7 @@ impl ThrennixApp {
         let mut run: Option<&'static str> = None;
         let mut recheck = false;
         let mut show_about = false;
+        let mut add_drive = false;
         let yt = self
             .yt_status
             .lock()
@@ -742,6 +795,11 @@ impl ThrennixApp {
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
+                // Scrolls on short screens (tablets at 150 %, the touch layout).
+                let max_height = (ctx.screen_rect().height() - 90.0).max(200.0);
+                egui::ScrollArea::vertical()
+                    .max_height(max_height)
+                    .show(ui, |ui| {
                 egui::Grid::new("settings")
                     .num_columns(2)
                     .spacing([14.0, 10.0])
@@ -757,6 +815,21 @@ impl ThrennixApp {
                                         ui.selectable_value(&mut s.theme, t, t.label()).changed();
                                 }
                             });
+                        ui.end_row();
+                        ui.label("Touch layout");
+                        egui::ComboBox::from_id_salt("touch_layout")
+                            .selected_text(s.touch_layout.label())
+                            .show_ui(ui, |ui| {
+                                for t in [TouchLayout::Auto, TouchLayout::On, TouchLayout::Off] {
+                                    commit |= ui
+                                        .selectable_value(&mut s.touch_layout, t, t.label())
+                                        .changed();
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Bigger rows and buttons for fingers. Automatic: on when this                                  PC has a touch screen.",
+                            );
                         ui.end_row();
                         ui.label("Download folder");
                         ui.horizontal(|ui| {
@@ -875,6 +948,9 @@ impl ThrennixApp {
                 s.tray_hint_shown |= crate::tray::hint_shown();
                 ui.add_space(4.0);
                 ui.separator();
+                commit |= network_drives_section(ui, &mut s, &mut add_drive);
+                ui.add_space(4.0);
+                ui.separator();
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("About").strong());
                     ui.label(
@@ -901,9 +977,13 @@ impl ThrennixApp {
                             .on_hover_text(url);
                     }
                 });
+                    });
             });
         if show_about {
             self.about_open = true;
+        }
+        if add_drive && self.add_drive.is_none() {
+            self.add_drive = Some(AddDriveDialog::new());
         }
         if let Some(cmd) = run {
             // Visible console so the user sees (and can answer) winget.
@@ -949,6 +1029,17 @@ impl ThrennixApp {
         if let Some(mut d) = self.add.take() {
             if add_url::show(ctx, &mut d, &self.shared) {
                 self.add = Some(d);
+            }
+        }
+
+        if let Some(mut d) = self.add_drive.take() {
+            match add_drive::show(ctx, &mut d) {
+                add_drive::Outcome::Open => self.add_drive = Some(d),
+                add_drive::Outcome::Cancelled => {}
+                add_drive::Outcome::Added {
+                    drive,
+                    make_default,
+                } => self.save_network_drive(drive, make_default),
             }
         }
 
@@ -1013,10 +1104,11 @@ impl ThrennixApp {
 
         if let Some((id, name, mut url, mut err)) = self.new_url.take() {
             let (mut ok, mut cancel) = (false, false);
+            let anchor = crate::touch::typing_dialog_anchor();
             egui::Window::new("New URL")
                 .collapsible(false)
                 .resizable(false)
-                .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+                .anchor(anchor.0, anchor.1)
                 .show(ctx, |ui| {
                     ui.label(format!("Paste a fresh link for \"{name}\":"));
                     let resp = ui.add(TextEdit::singleline(&mut url).desired_width(380.0));
@@ -1168,6 +1260,11 @@ impl ThrennixApp {
                 Action::ResumeMany(ids) => ids.into_iter().for_each(|id| self.shared.resume(id)),
                 Action::SelectAll => self.select_all(rows),
                 Action::SelectNone => self.selected.clear(),
+                Action::SelectMultiple(id) => {
+                    self.select_mode = true;
+                    self.selected.insert(id);
+                    self.anchor = Some(id);
+                }
                 Action::Pause(id) => self.shared.pause(id),
                 Action::Resume(id) => self.shared.resume(id),
                 Action::Open(p) => {
@@ -1201,8 +1298,15 @@ impl ThrennixApp {
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.about_open = true;
         }
-        if ctx.wants_keyboard_input() || self.add.is_some() || self.remove.is_some() {
+        if ctx.wants_keyboard_input()
+            || self.add.is_some()
+            || self.remove.is_some()
+            || self.add_drive.is_some()
+        {
             return;
+        }
+        if self.select_mode && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.select_mode = false;
         }
         let (del, all, new) = ctx.input(|i| {
             (
@@ -1234,7 +1338,12 @@ impl ThrennixApp {
 }
 
 impl eframe::App for ThrennixApp {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.touch.on_raw_input(ctx, raw_input);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.roomy = self.touch.frame(ctx, self.shared.settings().touch_layout);
         // Tray: close-to-tray (cancels the close), Ctrl+H, requests from the tray menu.
         for req in crate::tray::on_frame(ctx, &self.shared) {
             match req {
@@ -1251,6 +1360,9 @@ impl eframe::App for ThrennixApp {
         }
         let rows = self.shared.snapshot();
         self.selected.retain(|id| rows.iter().any(|r| r.id == *id));
+        if self.selected.is_empty() {
+            self.select_mode = false;
+        }
         let mut actions = Vec::new();
         let highlight = self
             .shared
@@ -1314,6 +1426,48 @@ impl eframe::App for ThrennixApp {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }
+}
+
+/// Settings → "Network drives": the saved shares, "Use for downloads", "Remove", and
+/// "Add network drive…". Returns whether the settings changed.
+fn network_drives_section(ui: &mut egui::Ui, s: &mut Settings, add: &mut bool) -> bool {
+    let weak = ui_palette(ui).weak_text;
+    let mut changed = false;
+    let mut remove = None;
+    ui.label(RichText::new("Network drives").strong());
+    if s.network_drives.is_empty() {
+        ui.label(
+            RichText::new(
+                "Save downloads straight to a shared folder on your router, NAS or another PC.",
+            )
+            .color(weak),
+        );
+    }
+    for (i, d) in s.network_drives.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(&d.path);
+            if !d.user.is_empty() {
+                ui.label(RichText::new(format!("as {}", d.user)).color(weak));
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button("Remove").clicked() {
+                    remove = Some(i);
+                }
+                if s.download_dir == d.dir() {
+                    ui.label(RichText::new("download folder").color(weak));
+                } else if ui.button("Use for downloads").clicked() {
+                    s.download_dir = d.dir();
+                    changed = true;
+                }
+            });
+        });
+    }
+    if let Some(i) = remove {
+        s.network_drives.remove(i);
+        changed = true;
+    }
+    *add |= ui.button("Add network drive…").clicked();
+    changed
 }
 
 fn palette_of(ctx: &egui::Context) -> theme::Palette {
