@@ -20,7 +20,7 @@ egui_extras = { version = "0.31", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 directories = "6"
 rfd = "0.15"
-winreg = "0.55"
+winreg = "0.56"
 opener = "0.7"
 arboard = { version = "3", default-features = false }
 notify-rust = "4"
