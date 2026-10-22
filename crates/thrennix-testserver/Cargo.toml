@@ -24,7 +24,7 @@ clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rcgen = "0.13"
+rcgen = "0.14"
 
 [dev-dependencies]
 reqwest.workspace = true
