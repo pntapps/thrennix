@@ -86,6 +86,23 @@ Thrennix is developed by **PNT Apps**.
 - Privacy Policy: [pntapps.com/privacy](https://www.pntapps.com/privacy)
 - Terms of Service: [pntapps.com/terms](https://www.pntapps.com/terms)
 
+## Credit to PNT Apps — required
+
+If you use, fork, modify or redistribute Thrennix, you must keep the credit to PNT Apps:
+
+- in your README or main documentation: "Developed by PNT Apps — https://www.pntapps.com", and
+- inside the app, where users can see it (for example an About or Settings screen): "Developed by PNT Apps" linking to https://www.pntapps.com.
+
+You may add your own credits next to it. This is an additional term of the license (GPL-3.0, section 7(b)); see [NOTICE](NOTICE).
+
+A modified version must not be presented as the original Thrennix, and the names "PNT Apps" and "Thrennix" and their logos/icons may not be used as the name or icon of your app.
+
 ## License
 
-Dual-licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Copyright © 2026 PNT Apps.
+
+Thrennix is licensed under the [GNU General Public License v3.0](LICENSE) with the additional attribution terms in [NOTICE](NOTICE).
+
+In short: you may use, study, change and share this app, but if you distribute it or a modified version, you must release your source code under the same GPL-3.0 license (including the attribution terms) and keep the credit to PNT Apps.
+
+Bundled fonts are under the Ubuntu Font Licence, MIT and SIL Open Font License 1.1, and libraries mostly under MIT and Apache 2.0; see [NOTICE](NOTICE). Versions 0.1.4 and earlier were released under MIT or Apache-2.0.

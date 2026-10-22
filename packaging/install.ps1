@@ -24,7 +24,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $Source = $PSScriptRoot
-$Payload = @('thrennix.exe', 'thrennix-cli.exe', 'LICENSE-MIT', 'LICENSE-APACHE', 'README.md', 'uninstall.ps1')
+$Payload = @('thrennix.exe', 'thrennix-cli.exe', 'LICENSE', 'NOTICE', 'README.md', 'uninstall.ps1')
 
 foreach ($name in @('thrennix.exe', 'extension')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Source $name))) {

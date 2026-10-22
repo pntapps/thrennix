@@ -1,0 +1,56 @@
+Thrennix (download manager for Windows, command-line tool and browser extension)
+Copyright (C) 2026 PNT Apps (https://www.pntapps.com)
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, version 3 of the License
+(see the LICENSE file), together with the additional terms below.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.
+
+Versions 0.1.4 and earlier were released under the MIT or Apache-2.0 licenses; copies of those
+versions keep those terms. Version 0.1.5 and later are under the terms in this file.
+
+
+ADDITIONAL TERMS (GNU GPL version 3, section 7)
+------------------------------------------------
+
+Under section 7(b) of the GNU General Public License version 3, the following reasonable author
+attribution must be preserved by anyone who conveys this program or a work based on it, in source
+or object form:
+
+  1. Keep the credit "Developed by PNT Apps" with a link to https://www.pntapps.com
+     - in the README (or equivalent main documentation) of the source code, and
+     - in a place in the app's user interface where users can reasonably see it, such as an About,
+       Settings or Credits screen. A modified version may add its own credits next to it.
+
+  2. Keep this NOTICE file, with these additional terms, in the source code.
+
+Under section 7(c), a modified version must be marked in reasonable ways as different from the
+original version, and must not be presented as the original "Thrennix" by PNT Apps.
+
+Under section 7(e), this license grants no right to use the names "PNT Apps" or "Thrennix", or the
+PNT Apps logo or the Thrennix app icon, as trademarks — for example as the name or icon of a
+modified app — except as needed to give the attribution required above.
+
+
+THIRD-PARTY COMPONENTS
+----------------------
+
+Fonts built into thrennix.exe (through egui's epaint_default_fonts crate):
+  - Ubuntu Light — Copyright Canonical Ltd., Ubuntu Font Licence 1.0
+  - Hack — Copyright 2018 Source Foundry Authors, MIT License (derived from DejaVu, public domain,
+    and Bitstream Vera, Copyright 2003 Bitstream, Inc., Bitstream Vera License)
+  - Noto Emoji — Copyright Google Inc., SIL Open Font License 1.1
+  - emoji-icon-font — Copyright (c) 2014 John Slegers, MIT License
+
+Rust libraries (egui/eframe, tokio, reqwest, rustls, serde and their dependencies) are used under
+their own licenses, almost all MIT and/or Apache-2.0; a few are BSD, ISC, Zlib, Unicode-3.0,
+MPL-2.0 or CDLA-Permissive-2.0. All are compatible with GPL-3.0. Run `cargo metadata` or see
+Cargo.lock for the full list.
+
+Not included in this repository or the release files, installed separately (optionally by the
+Thrennix installer through winget), each under its own license:
+  - yt-dlp (The Unlicense) — https://github.com/yt-dlp/yt-dlp
+  - FFmpeg (LGPL-2.1-or-later / GPL-2.0-or-later, depending on the build) — https://ffmpeg.org

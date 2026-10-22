@@ -189,8 +189,8 @@ if ($DryRun) { Write-Host '  DRY RUN: nothing will be written' -ForegroundColor 
 $TopFiles = @(
     @{ Src = (Join-Path $BinDir 'thrennix.exe'); Name = 'thrennix.exe' },
     @{ Src = (Join-Path $BinDir 'thrennix-cli.exe'); Name = 'thrennix-cli.exe' },
-    @{ Src = (Join-Path $Root 'LICENSE-MIT'); Name = 'LICENSE-MIT' },
-    @{ Src = (Join-Path $Root 'LICENSE-APACHE'); Name = 'LICENSE-APACHE' },
+    @{ Src = (Join-Path $Root 'LICENSE'); Name = 'LICENSE' },
+    @{ Src = (Join-Path $Root 'NOTICE'); Name = 'NOTICE' },
     @{ Src = (Join-Path $Root 'README.md'); Name = 'README.md' },
     @{ Src = (Join-Path $PackagingDir 'install.ps1'); Name = 'install.ps1' },
     @{ Src = (Join-Path $PackagingDir 'uninstall.ps1'); Name = 'uninstall.ps1' }

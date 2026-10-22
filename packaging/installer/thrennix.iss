@@ -66,7 +66,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 
-LicenseFile={#RepoRoot}\LICENSE-MIT
+LicenseFile={#RepoRoot}\LICENSE
 ShowLanguageDialog=no
 WizardStyle=modern
 WizardImageFile=wizard-large-100.bmp,wizard-large-125.bmp,wizard-large-150.bmp,wizard-large-200.bmp
@@ -123,12 +123,15 @@ Name: "ytdlp"; Description: "{cm:TaskYtdlp}"; GroupDescription: "{cm:TaskOptiona
 [InstallDelete]
 ; Replace the extension folder wholesale so files removed upstream do not linger.
 Type: filesandordirs; Name: "{app}\extension"
+; License files of 0.1.4 and earlier.
+Type: files; Name: "{app}\LICENSE-MIT"
+Type: files; Name: "{app}\LICENSE-APACHE"
 
 [Files]
 Source: "{#BinDir}\thrennix.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\thrennix-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RepoRoot}\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 ; extension\.keys holds the private signing key and must never ship.
 Source: "{#RepoRoot}\extension\*"; DestDir: "{app}\extension"; \
