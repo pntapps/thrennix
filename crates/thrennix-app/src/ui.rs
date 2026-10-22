@@ -1194,6 +1194,7 @@ impl ThrennixApp {
                     DetailsAction::Resume => self.shared.resume(id),
                     DetailsAction::Cancel(delete) => {
                         self.details.remove(&id);
+                        ctx.request_repaint();
                         if delete {
                             self.shared.remove(id, true);
                             self.selected.remove(&id);
@@ -1206,6 +1207,9 @@ impl ThrennixApp {
                     DetailsAction::Resize(_) => {}
                     DetailsAction::Close => {
                         self.details.remove(&id);
+                        // egui drops a viewport only on a frame that doesn't show it; when
+                        // nothing is downloading the app is idle, so ask for that frame.
+                        ctx.request_repaint();
                     }
                 }
             }
@@ -1250,6 +1254,7 @@ impl ThrennixApp {
         );
         if close {
             self.about_open = false;
+            ctx.request_repaint();
         }
     }
 
