@@ -4156,7 +4156,7 @@ name = "thrennix-app"
 version = "0.1.7"
 dependencies = [
  "arboard",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "directories",
  "eframe",
@@ -4194,7 +4194,7 @@ name = "thrennix-core"
 version = "0.1.7"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "futures-util",
  "reqwest",
