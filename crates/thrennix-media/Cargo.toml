@@ -13,7 +13,7 @@ serde_json.workspace = true
 url.workspace = true
 tracing.workspace = true
 roxmltree = "0.20"
-aes = "0.8"
+aes = "0.9"
 cbc = { version = "0.1", features = ["alloc", "block-padding"] }
 
 [target.'cfg(windows)'.dependencies]
