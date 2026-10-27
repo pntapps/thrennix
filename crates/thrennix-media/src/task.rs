@@ -657,6 +657,7 @@ async fn finish(
                 (&video, plan.video.ext),
                 audio.as_ref().map(|(p, e)| (p.as_path(), *e)),
                 &tmp,
+                mux::Container::Mp4,
             )
             .await
             {

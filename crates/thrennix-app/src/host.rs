@@ -35,6 +35,9 @@ fn handle(bytes: &[u8]) -> String {
         .unwrap_or_default()
         .to_string();
     let is_ping = kind == "ping";
+    // The extension warms the quality list when a YouTube video opens; that alone should
+    // not launch the app either.
+    let is_prefetch = value.get("prefetch") == Some(&serde_json::Value::Bool(true));
     // yt-dlp probing takes a few seconds.
     let timeout = if kind == "ytFormats" {
         ipc::REPLY_TIMEOUT_YT
@@ -43,7 +46,7 @@ fn handle(bytes: &[u8]) -> String {
     };
     let line = value.to_string(); // compact: guaranteed single line
                                   // A ping should not launch the app just to answer it.
-    let pipe = match ipc::connect(!is_ping) {
+    let pipe = match ipc::connect(!is_ping && !is_prefetch) {
         Ok(p) => p,
         Err(_) if is_ping => {
             return Response::Pong {

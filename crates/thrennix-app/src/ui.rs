@@ -21,7 +21,7 @@ use crate::brand;
 use crate::details::{self, DetailsAction, DetailsState};
 use crate::fmt;
 use crate::protocol::{validate_url, Kind};
-use crate::state::{reveal, RowView, Settings, Shared};
+use crate::state::{is_network_dir, reveal, RowView, Settings, Shared};
 use crate::theme::{self, toolbar_button, ui_palette, Category, Icon, ThemeChoice};
 use crate::touch::{TouchLayout, TouchState};
 
@@ -121,6 +121,10 @@ pub struct ThrennixApp {
     /// Taps toggle rows, as if Ctrl were held.
     select_mode: bool,
     add_drive: Option<AddDriveDialog>,
+    /// The window had keyboard focus last frame.
+    focused: bool,
+    /// Last copied YouTube link whose qualities were fetched ahead of time.
+    clip_prefetched: String,
 }
 
 impl ThrennixApp {
@@ -152,6 +156,8 @@ impl ThrennixApp {
             roomy: false,
             select_mode: false,
             add_drive: None,
+            focused: false,
+            clip_prefetched: String::new(),
         }
     }
 
@@ -174,13 +180,20 @@ impl ThrennixApp {
     }
 
     fn open_add_dialog(&mut self) {
-        let clip = arboard::Clipboard::new()
-            .and_then(|mut c| c.get_text())
-            .map(|t| t.trim().to_string())
-            .ok()
-            .filter(|t| !t.contains(char::is_whitespace) && validate_url(t).is_ok())
-            .unwrap_or_default();
+        let clip = clipboard_url().unwrap_or_default();
         self.add = Some(AddDialog::new(clip, self.shared.settings().download_dir));
+    }
+
+    /// Switching to Thrennix with a YouTube link copied: start fetching its qualities
+    /// now (yt-dlp is slow to start on a tablet), so Add URL shows them right away.
+    fn prefetch_clipboard(&mut self) {
+        let Some(url) = clipboard_url() else { return };
+        if url == self.clip_prefetched || crate::protocol::youtube_video_id(&url).is_none() {
+            return;
+        }
+        self.clip_prefetched = url.clone();
+        // The result lands in the shared cache; nobody waits for it here.
+        drop(self.shared.probe_yt(url));
     }
 
     /// Browser downloads waiting for "Ask where to save". Cancelled = kept as Paused.
@@ -189,9 +202,10 @@ impl ThrennixApp {
             return;
         }
         for nd in self.shared.take_pending_ask() {
+            let s = self.shared.settings();
             let picked = rfd::FileDialog::new()
                 .set_title("Save download to…")
-                .set_directory(self.shared.settings().download_dir)
+                .set_directory(s.picker_start(&s.download_dir))
                 .pick_folder();
             match picked {
                 Some(dir) => {
@@ -832,14 +846,25 @@ impl ThrennixApp {
                             );
                         ui.end_row();
                         ui.label("Download folder");
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label(s.download_dir.display().to_string());
                             if ui.button("Change…").clicked() {
                                 if let Some(d) = rfd::FileDialog::new()
-                                    .set_directory(&s.download_dir)
+                                    .set_directory(s.picker_start(&s.download_dir))
                                     .pick_folder()
                                 {
                                     s.download_dir = d;
+                                    commit = true;
+                                }
+                            }
+                            if is_network_dir(&s.download_dir) {
+                                let local = s.local_dir();
+                                if ui
+                                    .button("Use this PC")
+                                    .on_hover_text(format!("Save to {} again", local.display()))
+                                    .clicked()
+                                {
+                                    s.download_dir = local;
                                     commit = true;
                                 }
                             }
@@ -1349,6 +1374,11 @@ impl eframe::App for ThrennixApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.roomy = self.touch.frame(ctx, self.shared.settings().touch_layout);
+        let focused = ctx.input(|i| i.focused);
+        if focused && !self.focused {
+            self.prefetch_clipboard();
+        }
+        self.focused = focused;
         // Tray: close-to-tray (cancels the close), Ctrl+H, requests from the tray menu.
         for req in crate::tray::on_frame(ctx, &self.shared) {
             match req {
@@ -1431,6 +1461,15 @@ impl eframe::App for ThrennixApp {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }
+}
+
+/// A single http(s) URL on the clipboard.
+fn clipboard_url() -> Option<String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .map(|t| t.trim().to_string())
+        .ok()
+        .filter(|t| !t.contains(char::is_whitespace) && validate_url(t).is_ok())
 }
 
 /// Settings → "Network drives": the saved shares, "Use for downloads", "Remove", and

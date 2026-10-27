@@ -34,7 +34,11 @@
   const MIN_W = 200;
   const MIN_H = 120;
   const AUTO_HIDE_MS = 5000;
+  // A finger can't hover to bring the button back, so after a tap it stays longer.
+  const AUTO_HIDE_TOUCH_MS = 10000;
   const SCAN_MS = 1000;
+  // Ask for a video's qualities this long after it opens, so the menu is ready on click.
+  const YT_PREFETCH_MS = 1500;
 
   // ready: background has answered at least once (until then we don't know if the tab is excluded)
   const state = { ready: false, excluded: false, drm: false, items: [], videoButton: true };
@@ -50,8 +54,11 @@
   let stopped = false;
   let drmReported = false;
   let lastMove = 0;
+  let lastTouch = 0;
   // YouTube state (reset per video id)
   let ytShownId = null;
+  let ytPrefetchTimer = null;
+  const ytPrefetched = new Set();
   let lastHref = location.href;
   const ytDismissed = new Set();
   const ytDrm = new Set();
@@ -177,9 +184,23 @@
       if (ytShownId !== y.id) removeUi();
       showFor(a);
       ytShownId = y.id;
+      ytSchedulePrefetch(y);
     } else {
       position();
     }
+  }
+
+  // Starting yt-dlp takes a while (many seconds on a slow tablet): warm the quality list
+  // once the video has been open briefly, so "Download this video" opens straight away.
+  function ytSchedulePrefetch(y) {
+    if (ytPrefetched.has(y.id) || y.kind === "live") return;
+    clearTimeout(ytPrefetchTimer);
+    ytPrefetchTimer = setTimeout(() => {
+      const now = C.youtubeInfo(location.href);
+      if (stopped || !now || now.id !== y.id || document.hidden) return;
+      ytPrefetched.add(y.id);
+      C.sendToBackground({ cmd: "ytPrefetch", url: y.watchUrl });
+    }, YT_PREFETCH_MS);
   }
 
   function onYtNavigate() {
@@ -226,7 +247,7 @@
     button { all: unset; box-sizing: border-box; cursor: pointer; color: #fff;
       background: rgba(29, 99, 237, .95); padding: 6px 10px; white-space: nowrap;
       box-shadow: 0 2px 8px rgba(0,0,0,.35); }
-    button:hover { background: #1550c4; }
+    @media (hover: hover) { button:hover { background: #1550c4; } }
     button:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
     .dl { border-radius: 6px 0 0 6px; font-weight: 600; }
     .x { border-radius: 0 6px 6px 0; padding: 6px 8px; }
@@ -236,7 +257,7 @@
     .menu[hidden] { display: none; }
     .menu button { display: block; width: 100%; background: transparent; box-shadow: none;
       padding: 8px 10px; border-radius: 6px; color: #e8eaed; white-space: normal; }
-    .menu button:hover { background: rgba(255,255,255,.1); }
+    @media (hover: hover) { .menu button:hover { background: rgba(255,255,255,.1); } }
     .menu.wide { min-width: min(520px, 90vw); max-width: min(680px, 90vw); }
     .menu button.yt { display: flex; gap: 12px; align-items: baseline; white-space: nowrap; }
     .yt .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -247,7 +268,15 @@
     .msg code { font-family: ui-monospace, Consolas, monospace; user-select: text; }
     .menu button.copy { display: inline-block; width: auto; margin: 0 10px 8px; padding: 4px 10px;
       background: rgba(29, 99, 237, .95); color: #fff; }
-    .menu button.copy:hover { background: #1550c4; }
+    @media (hover: hover) { .menu button.copy:hover { background: #1550c4; } }
+    /* Touch screens (Windows tablets): finger-sized targets. */
+    @media (any-pointer: coarse) {
+      .wrap { font-size: 15px; gap: 4px; }
+      button { padding: 11px 16px; }
+      .x { padding: 11px 14px; }
+      .menu button { padding: 13px 12px; }
+      .menu button.copy { padding: 9px 14px; }
+    }
     .spin { display: inline-block; width: 11px; height: 11px; margin-right: 8px; vertical-align: -1px;
       border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
       animation: thrennix-spin .8s linear infinite; }
@@ -255,7 +284,7 @@
     @media (prefers-color-scheme: light) {
       .menu { background: #ffffff; color: #1f2329; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
       .menu button { color: #1f2329; }
-      .menu button:hover { background: rgba(0,0,0,.06); }
+      @media (hover: hover) { .menu button:hover { background: rgba(0,0,0,.06); } }
       .menu button.copy { color: #fff; }
       .msg { color: #5f6672; }
       .msg.ok { color: #188038; }
@@ -265,6 +294,21 @@
 
   function stopEvent(e) {
     e.stopPropagation();
+  }
+
+  // Run fn on a click, or straight on a finger/pen tap: YouTube's player cancels the
+  // click that a touch would produce, so on a tablet buttons wouldn't react.
+  function onTap(el, fn) {
+    let tappedAt = 0;
+    el.addEventListener("pointerup", (e) => {
+      if (e.pointerType === "mouse" || e.button > 0) return;
+      tappedAt = Date.now();
+      fn(e);
+    });
+    el.addEventListener("click", (e) => {
+      if (Date.now() - tappedAt < 1000) return; // the tap already ran it
+      fn(e);
+    });
   }
 
   function createUi() {
@@ -297,11 +341,22 @@
     hs.setProperty("pointer-events", "none", "important");
     hs.setProperty("transform", "translateX(-100%)", "important");
 
-    for (const t of ["click", "mousedown", "mouseup", "pointerdown", "pointerup", "dblclick", "contextmenu", "keydown"]) {
+    for (const t of [
+      "click",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "touchstart",
+      "touchend",
+      "dblclick",
+      "contextmenu",
+      "keydown",
+    ]) {
       host.addEventListener(t, stopEvent);
     }
-    btn.addEventListener("click", () => (ytMode ? ytToggleMenu() : toggleMenu()).catch(() => {}));
-    close.addEventListener("click", () => {
+    onTap(btn, () => (ytMode ? ytToggleMenu() : toggleMenu()).catch(() => {}));
+    onTap(close, () => {
       if (ytMode && ytShownId) ytDismissed.add(ytShownId);
       else if (activeVideo) dismissed.add(activeVideo);
       removeUi();
@@ -404,20 +459,31 @@
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
       if (ui && !ui.menuOpen) setVisible(false);
-    }, AUTO_HIDE_MS);
+    }, Date.now() - lastTouch < AUTO_HIDE_TOUCH_MS ? AUTO_HIDE_TOUCH_MS : AUTO_HIDE_MS);
+  }
+
+  function revealNear(x, y) {
+    if (!ui || !activeVideo) return;
+    const r = activeVideo.getBoundingClientRect();
+    const pad = 40;
+    if (x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad) {
+      setVisible(true);
+      scheduleHide();
+    }
   }
 
   function onMouseMove(e) {
     const now = Date.now();
     if (now - lastMove < 100) return;
     lastMove = now;
-    if (!ui || !activeVideo) return;
-    const r = activeVideo.getBoundingClientRect();
-    const pad = 40;
-    if (e.clientX >= r.left - pad && e.clientX <= r.right + pad && e.clientY >= r.top - pad && e.clientY <= r.bottom + pad) {
-      setVisible(true);
-      scheduleHide();
-    }
+    revealNear(e.clientX, e.clientY);
+  }
+
+  // Touch screens have no hover: a tap on the video brings the button back.
+  function onPointerDown(e) {
+    if (e.pointerType === "mouse") return;
+    lastTouch = Date.now();
+    revealNear(e.clientX, e.clientY);
   }
 
   /* ----------------------------------------------------------------- menu */
@@ -464,7 +530,7 @@
       const b = document.createElement("button");
       b.textContent = c.label;
       b.title = c.url;
-      b.addEventListener("click", () => startDownload(c).catch(() => {}));
+      onTap(b, () => startDownload(c).catch(() => {}));
       return b;
     });
     ui.menu.replaceChildren(...nodes);
@@ -513,7 +579,7 @@
     const copy = document.createElement("button");
     copy.className = "copy";
     copy.textContent = "Copy command";
-    copy.addEventListener("click", async () => {
+    onTap(copy, async () => {
       try {
         await navigator.clipboard.writeText(YT_DLP_CMD);
         copy.textContent = "Copied ✓";
@@ -553,7 +619,7 @@
       q.textContent = C.ytFormatLabel(f);
       b.title = title + " — " + q.textContent;
       b.append(t, q);
-      b.addEventListener("click", () => ytStart(y, f, title).catch(() => {}));
+      onTap(b, () => ytStart(y, f, title).catch(() => {}));
       return b;
     });
     ui.menu.classList.add("wide");
@@ -596,11 +662,13 @@
     stopped = true;
     removeUi();
     clearInterval(scanTimer);
+    clearTimeout(ytPrefetchTimer);
     document.removeEventListener("playing", onPlay, true);
     document.removeEventListener("play", onPlay, true);
     window.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("resize", onScroll);
     document.removeEventListener("mousemove", onMouseMove, true);
+    document.removeEventListener("pointerdown", onPointerDown, true);
     document.removeEventListener("click", onDocClick, true);
     document.removeEventListener("fullscreenchange", onFullscreen);
     document.removeEventListener("webkitfullscreenchange", onFullscreen);
@@ -615,6 +683,7 @@
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", onScroll, { passive: true });
     document.addEventListener("mousemove", onMouseMove, { capture: true, passive: true });
+    document.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
     document.addEventListener("click", onDocClick, true);
     document.addEventListener("fullscreenchange", onFullscreen);
     document.addEventListener("webkitfullscreenchange", onFullscreen);

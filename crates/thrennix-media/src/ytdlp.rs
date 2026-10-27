@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::mux::{self, Container};
 use crate::task::{cancelled, Shared, Speedo};
-use crate::util::{find_ffmpeg, find_tool, sanitize, write_zone_identifier};
+use crate::util::{find_ffmpeg, find_tool, rename_with_retry, sanitize, write_zone_identifier};
 use crate::{Error, MediaHandle, Result, Status};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,7 +35,9 @@ pub struct YtInfo {
 }
 
 const AUDIO_ID: &str = "ba[ext=m4a]/ba";
-const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+/// A cold yt-dlp start on a slow tablet (unpacking itself, solving YouTube's JS challenge)
+/// can take most of a minute.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(120);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Locate yt-dlp: `THRENNIX_YTDLP`, PATH, next to the current exe, `WinGet\Links`,
@@ -263,6 +266,94 @@ const PROGRESS_TEMPLATE: &str = "download:THRENNIX %(progress.downloaded_bytes)s
 const POSTPROCESS_TEMPLATE: &str =
     "postprocess:THRENNIXPP %(progress.status)s %(progress.postprocessor)s";
 const FILE_PRINT: &str = "after_move:THRENNIXFILE %(filepath)s";
+/// Printed after format selection: the two formats of a merge and the merged file name.
+const MERGE_PRINT: &str = "video:THRENNIXMERGE %(requested_formats.0.format_id)s %(requested_formats.0.ext)s %(requested_formats.1.format_id)s %(requested_formats.1.ext)s %(filename)s";
+
+/// The video and audio files yt-dlp downloads before merging them into `merged`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MergeParts {
+    pub video: PathBuf,
+    pub audio: PathBuf,
+    pub merged: PathBuf,
+}
+
+/// Parse a `THRENNIXMERGE` line. yt-dlp names the parts `<merged stem>.f<format id>.<ext>`.
+pub(crate) fn parse_merge(line: &str) -> Option<MergeParts> {
+    let rest = line.trim_end().strip_prefix("THRENNIXMERGE ")?;
+    let mut it = rest.splitn(5, ' ');
+    let mut field = || it.next().filter(|f| !f.is_empty() && *f != "NA");
+    let (vid, vext, aid, aext) = (field()?, field()?, field()?, field()?);
+    let merged = PathBuf::from(it.next()?.trim());
+    let stem = merged.with_extension("");
+    let part = |id: &str, ext: &str| {
+        let mut p = stem.as_os_str().to_owned();
+        p.push(format!(".f{id}.{ext}"));
+        PathBuf::from(p)
+    };
+    Some(MergeParts {
+        video: part(vid, vext),
+        audio: part(aid, aext),
+        merged,
+    })
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut p = path.as_os_str().to_owned();
+    p.push(suffix);
+    PathBuf::from(p)
+}
+
+fn dot_ext(p: &Path) -> String {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e.to_ascii_lowercase()))
+        .unwrap_or_default()
+}
+
+/// yt-dlp downloaded both parts but its merge failed: ffmpeg refused the MP4, or (on slow
+/// PCs, with big 4K files) Windows Defender still had the merged file open when yt-dlp
+/// renamed it. Merge the parts ourselves, MP4 first, then MKV, which takes any codec.
+async fn merge_parts(parts: &MergeParts) -> Result<PathBuf> {
+    let ffmpeg = find_ffmpeg().ok_or_else(|| {
+        Error::Other("ffmpeg not found — install with: winget install Gyan.FFmpeg".into())
+    })?;
+    let stem = parts.merged.with_extension("");
+    let (ve, ae) = (dot_ext(&parts.video), dot_ext(&parts.audio));
+    let mut last = String::new();
+    for (container, ext) in [(Container::Mp4, "mp4"), (Container::Mkv, "mkv")] {
+        let tmp = with_suffix(&stem, &format!(".thrennix.{ext}"));
+        let res = mux::ffmpeg_mux(
+            &ffmpeg,
+            (&parts.video, &ve),
+            Some((&parts.audio, &ae)),
+            &tmp,
+            container,
+        )
+        .await;
+        match res {
+            Ok(()) => {
+                let out = with_suffix(&stem, &format!(".{ext}"));
+                rename_with_retry(&tmp, &out).await?;
+                for p in [&parts.video, &parts.audio, &with_suffix(&stem, ".temp.mp4")] {
+                    let _ = tokio::fs::remove_file(p).await;
+                }
+                return Ok(out);
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&tmp).await;
+                last = e.to_string();
+            }
+        }
+    }
+    // ffmpeg's last line names the problem ("No space left on device", ...).
+    Err(Error::Other(
+        last.lines()
+            .map(str::trim)
+            .rfind(|l| !l.is_empty())
+            .unwrap_or("ffmpeg failed")
+            .to_string(),
+    ))
+}
 
 pub(crate) fn parse_progress(line: &str) -> Option<YtProgress> {
     let rest = line
@@ -406,6 +497,8 @@ pub(crate) fn build_args(
     a.push(POSTPROCESS_TEMPLATE.into());
     a.push("--print".into());
     a.push(FILE_PRINT.into());
+    a.push("--print".into());
+    a.push(MERGE_PRINT.into());
     a.push("--".into());
     a.push(url.trim().to_string());
     a
@@ -596,6 +689,7 @@ async fn run_inner(
     shared.publish(0.0);
     let mut acc = Accumulator::default();
     let mut final_path: Option<PathBuf> = None;
+    let mut merge: Option<MergeParts> = None;
     let mut speed = 0.0;
     let mut speedo = Speedo::new();
     let mut tick = tokio::time::interval(Duration::from_millis(200));
@@ -612,6 +706,8 @@ async fn run_inner(
                     speed = p.speed.filter(|s| *s > 0.0).unwrap_or(-1.0);
                 } else if let Some(path) = line.strip_prefix("THRENNIXFILE ") {
                     final_path = Some(PathBuf::from(path.trim()));
+                } else if line.starts_with("THRENNIXMERGE ") {
+                    merge = parse_merge(line);
                 } else if is_mux_step(line) {
                     shared.muxing.store(true, std::sync::atomic::Ordering::Relaxed);
                 } else if !line.is_empty() {
@@ -637,15 +733,28 @@ async fn run_inner(
     };
     drop(job);
     if !status.success() {
-        let tail = stderr_tail.lock().unwrap();
-        let msg = tail
-            .iter()
-            .rev()
-            .find(|l| l.starts_with("ERROR"))
-            .or(tail.last())
-            .cloned()
-            .unwrap_or_else(|| format!("yt-dlp failed ({status})"));
-        return Err(Error::Other(msg));
+        let msg = {
+            let tail = stderr_tail.lock().unwrap();
+            tail.iter()
+                .rev()
+                .find(|l| l.starts_with("ERROR"))
+                .or(tail.last())
+                .cloned()
+                .unwrap_or_else(|| format!("yt-dlp failed ({status})"))
+        };
+        let downloaded = merge
+            .as_ref()
+            .filter(|m| m.video.is_file() && m.audio.is_file());
+        let Some(parts) = downloaded else {
+            return Err(Error::Other(msg));
+        };
+        tracing::warn!("{msg}; merging the downloaded parts ourselves");
+        shared
+            .muxing
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        return merge_parts(parts)
+            .await
+            .map_err(|e| Error::Other(format!("Merging video and audio failed: {e}")));
     }
     let path =
         final_path.ok_or_else(|| Error::Other("yt-dlp did not report the output file".into()))?;
@@ -790,6 +899,17 @@ mod tests {
         assert!(is_mux_step("THRENNIXPP started Merger"));
         assert!(!is_mux_step("THRENNIXPP finished Merger"));
         assert!(!is_mux_step("THRENNIXPP started MoveFiles"));
+    }
+
+    #[test]
+    fn merge_lines() {
+        let m = parse_merge(r"THRENNIXMERGE 701 mp4 140-drc m4a C:\dl\My v1.2 [abc].mp4").unwrap();
+        assert_eq!(m.video, PathBuf::from(r"C:\dl\My v1.2 [abc].f701.mp4"));
+        assert_eq!(m.audio, PathBuf::from(r"C:\dl\My v1.2 [abc].f140-drc.m4a"));
+        assert_eq!(m.merged, PathBuf::from(r"C:\dl\My v1.2 [abc].mp4"));
+        // A single format: nothing to merge.
+        assert_eq!(parse_merge(r"THRENNIXMERGE NA NA NA NA C:\dl\a.m4a"), None);
+        assert_eq!(parse_merge("THRENNIXMERGE 1 mp4"), None);
     }
 
     #[test]

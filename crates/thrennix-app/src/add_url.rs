@@ -235,7 +235,8 @@ fn run_in_console(cmd: &str) -> Result<(), String> {
 /// Draw the dialog. Returns false once it should close.
 pub fn show(ctx: &egui::Context, d: &mut AddDialog, shared: &Arc<Shared>) -> bool {
     let settings = shared.settings();
-    let (always_best, drives) = (settings.yt_always_best, settings.network_drives);
+    let always_best = settings.yt_always_best;
+    let drives = &settings.network_drives;
     d.track_url();
     d.poll();
     let url = d.url.trim().to_string();
@@ -276,19 +277,28 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, shared: &Arc<Shared>) -> boo
                     }
                     ui.end_row();
                     ui.label("Save to");
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(d.dir.display().to_string());
                         if ui.button("Change…").clicked() {
-                            if let Some(p) =
-                                rfd::FileDialog::new().set_directory(&d.dir).pick_folder()
+                            if let Some(p) = rfd::FileDialog::new()
+                                .set_directory(settings.picker_start(&d.dir))
+                                .pick_folder()
                             {
                                 d.dir = p;
                             }
                         }
                         if !drives.is_empty() {
-                            ui.menu_button("Network drive", |ui| {
-                                for nd in &drives {
-                                    if ui.button(&nd.path).clicked() {
+                            // This PC first, so getting back from a network drive is one tap.
+                            ui.menu_button("Save on…", |ui| {
+                                let local = settings.local_dir();
+                                let here = format!("This PC — {}", local.display());
+                                if ui.selectable_label(d.dir == local, here).clicked() {
+                                    d.dir = local;
+                                    ui.close_menu();
+                                }
+                                for nd in drives {
+                                    let on = d.dir == nd.dir();
+                                    if ui.selectable_label(on, &nd.path).clicked() {
                                         d.dir = nd.dir();
                                         ui.close_menu();
                                     }

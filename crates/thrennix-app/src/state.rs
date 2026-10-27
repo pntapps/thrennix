@@ -47,6 +47,12 @@ pub fn reveal(path: Option<&Path>, dir: &Path) -> Result<(), String> {
 const MAX_PENDING_ASK: usize = 20;
 /// How long "remove" waits for a running job to stop before deleting its files.
 const REMOVE_WAIT: Duration = Duration::from_secs(10);
+/// A YouTube quality list is reused this long (it holds format selectors, not stream URLs).
+const YT_PROBE_TTL: Duration = Duration::from_secs(30 * 60);
+const YT_PROBE_CACHE_MAX: usize = 64;
+
+/// One yt-dlp probe, shared by everyone who asks for the same video while it runs and after.
+type ProbeCell = Arc<tokio::sync::OnceCell<Result<crate::backend::YtInfoOut, String>>>;
 
 // ---------------------------------------------------------------- persistence helpers
 
@@ -120,16 +126,27 @@ pub struct Settings {
     pub touch_layout: TouchLayout,
     /// Saved network folders (SMB shares) with their sign-in.
     pub network_drives: Vec<NetDrive>,
+    /// The last download folder on this PC, to go back to from a network drive.
+    pub local_download_dir: Option<PathBuf>,
+}
+
+/// The user's Downloads folder.
+fn default_download_dir() -> PathBuf {
+    directories::UserDirs::new()
+        .and_then(|u| u.download_dir().map(PathBuf::from))
+        .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join("Downloads")))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// A folder on a network share (`\\server\share\…`), not on this PC.
+pub fn is_network_dir(dir: &Path) -> bool {
+    dir.to_str().and_then(netdrive::share_root).is_some()
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let download_dir = directories::UserDirs::new()
-            .and_then(|u| u.download_dir().map(PathBuf::from))
-            .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join("Downloads")))
-            .unwrap_or_else(|| PathBuf::from("."));
         Self {
-            download_dir,
+            download_dir: default_download_dir(),
             max_connections: 32,
             initial_connections: 8,
             ask_where: false,
@@ -143,6 +160,7 @@ impl Default for Settings {
             tray_hint_shown: false,
             touch_layout: TouchLayout::Auto,
             network_drives: Vec::new(),
+            local_download_dir: None,
         }
     }
 }
@@ -156,6 +174,31 @@ impl Settings {
     pub fn normalize(&mut self) {
         self.max_connections = self.max_connections.clamp(1, 32);
         self.initial_connections = self.initial_connections.clamp(1, self.max_connections);
+        if !is_network_dir(&self.download_dir) {
+            self.local_download_dir = Some(self.download_dir.clone());
+        }
+    }
+
+    /// The download folder on this PC: the current one, or the one used before switching
+    /// to a network drive (else Downloads).
+    pub fn local_dir(&self) -> PathBuf {
+        if !is_network_dir(&self.download_dir) {
+            return self.download_dir.clone();
+        }
+        self.local_download_dir
+            .clone()
+            .filter(|d| !is_network_dir(d))
+            .unwrap_or_else(default_download_dir)
+    }
+
+    /// Where a folder picker should open: never on a network share, which may be asleep
+    /// (the dialog then hangs) and makes this PC's drives hard to reach on a tablet.
+    pub fn picker_start(&self, dir: &Path) -> PathBuf {
+        if is_network_dir(dir) {
+            self.local_dir()
+        } else {
+            dir.to_path_buf()
+        }
     }
     pub fn engine_config(&self) -> EngineConfig {
         EngineConfig {
@@ -513,6 +556,8 @@ pub struct Shared {
     /// Row whose "file changed on server" prompt should be shown.
     restart_prompt: Mutex<Option<u64>>,
     open_details: Mutex<Vec<u64>>,
+    /// yt-dlp quality lists by video (see [`Shared::probe_yt`]).
+    yt_probes: Mutex<Vec<(String, Instant, ProbeCell)>>,
     pub ctx: OnceLock<eframe::egui::Context>,
     next_id: AtomicU64,
     save_lock: Mutex<()>,
@@ -541,6 +586,7 @@ impl Shared {
             highlight: Mutex::new(None),
             restart_prompt: Mutex::new(None),
             open_details: Mutex::new(Vec::new()),
+            yt_probes: Mutex::new(Vec::new()),
             ctx: OnceLock::new(),
             next_id: AtomicU64::new(next_id),
             save_lock: Mutex::new(()),
@@ -562,8 +608,35 @@ impl Shared {
         }
     }
 
+    /// The yt-dlp quality list for `url`. Starting yt-dlp takes many seconds on a slow
+    /// tablet, so one probe per video serves the extension's prefetch, its menu, the Add
+    /// dialog and a copied link alike, and is kept for a while. The probe runs to the end
+    /// even if the asker gives up (a timeout), so asking again picks it up. Failures are
+    /// not kept.
     pub fn probe_yt(&self, url: String) -> crate::backend::ProbeFuture {
-        self.backend.probe_yt(url)
+        let key = crate::protocol::youtube_video_id(&url).unwrap_or_else(|| url.trim().to_string());
+        let cell = {
+            let mut probes = lock(&self.yt_probes);
+            probes.retain(|(_, at, c)| {
+                at.elapsed() < YT_PROBE_TTL && !matches!(c.get(), Some(Err(_)))
+            });
+            match probes.iter().find(|(k, ..)| *k == key) {
+                Some((.., c)) => c.clone(),
+                None => {
+                    if probes.len() >= YT_PROBE_CACHE_MAX {
+                        probes.remove(0);
+                    }
+                    let c = ProbeCell::default();
+                    probes.push((key, Instant::now(), c.clone()));
+                    c
+                }
+            }
+        };
+        let backend = self.backend.clone();
+        let task = self
+            .rt
+            .spawn(async move { cell.get_or_init(|| backend.probe_yt(url)).await.clone() });
+        Box::pin(async move { task.await.unwrap_or_else(|e| Err(e.to_string())) })
     }
 
     pub fn settings(&self) -> Settings {

@@ -143,6 +143,34 @@ pub fn is_youtube_host(host: &str) -> bool {
     h == "youtube.com" || h == "youtu.be" || h == "youtube-nocookie.com"
 }
 
+/// The video id of a YouTube watch / shorts / embed / youtu.be link (same rules as the
+/// extension's `youtubeInfo`).
+pub fn youtube_video_id(url: &str) -> Option<String> {
+    let u = url::Url::parse(url.trim()).ok()?;
+    let host = u.host_str()?.to_ascii_lowercase();
+    if !is_youtube_host(&host) || host.starts_with("music.") {
+        return None;
+    }
+    let p: Vec<&str> = u.path_segments()?.filter(|s| !s.is_empty()).collect();
+    let id = if host == "youtu.be" {
+        p.first().map(|s| s.to_string())
+    } else {
+        match p.as_slice() {
+            ["watch", ..] => u
+                .query_pairs()
+                .find(|(k, _)| k == "v")
+                .map(|(_, v)| v.into_owned()),
+            ["shorts" | "live" | "embed" | "v", id, ..] => Some(id.to_string()),
+            _ => None,
+        }
+    }?;
+    let valid = id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    valid.then_some(id)
+}
+
 /// Accept only absolute http(s) URLs with a host.
 pub fn validate_url(s: &str) -> Result<url::Url, String> {
     let u = url::Url::parse(s.trim()).map_err(|e| format!("invalid URL: {e}"))?;
@@ -369,5 +397,28 @@ mod tests {
             Some("a_b_c_.zip")
         );
         assert_eq!(sanitize_file_name(" .. "), None);
+    }
+
+    #[test]
+    fn youtube_ids() {
+        let id = Some("aqz-KE-bpKQ".to_string());
+        for u in [
+            "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            "https://m.youtube.com/watch?list=PL1&v=aqz-KE-bpKQ&t=30s",
+            "https://youtu.be/aqz-KE-bpKQ?si=xyz",
+            "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+            "https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ",
+            " https://youtube.com/watch?v=aqz-KE-bpKQ ",
+        ] {
+            assert_eq!(youtube_video_id(u), id, "{u}");
+        }
+        for u in [
+            "https://music.youtube.com/watch?v=aqz-KE-bpKQ",
+            "https://www.youtube.com/watch?v=short",
+            "https://www.youtube.com/channel/aqz-KE-bpKQ",
+            "https://example.com/watch?v=aqz-KE-bpKQ",
+        ] {
+            assert_eq!(youtube_video_id(u), None, "{u}");
+        }
     }
 }

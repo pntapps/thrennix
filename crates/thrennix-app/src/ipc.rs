@@ -18,11 +18,13 @@ use crate::state::Shared;
 use crate::winsec;
 
 const ERROR_PIPE_BUSY: i32 = 231;
-/// GUI-side limit for a yt-dlp probe; the host waits a little longer than this.
-const YT_PROBE_TIMEOUT: Duration = Duration::from_secs(55);
+/// GUI-side limit for a yt-dlp probe (a cold start on a slow tablet can take most of a
+/// minute); the host waits a little longer than this. The probe itself keeps running and
+/// is cached, so asking again picks it up.
+const YT_PROBE_TIMEOUT: Duration = Duration::from_secs(100);
 /// How long the host waits for the GUI's reply.
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(20);
-pub const REPLY_TIMEOUT_YT: Duration = Duration::from_secs(60);
+pub const REPLY_TIMEOUT_YT: Duration = Duration::from_secs(105);
 
 pub fn pipe_name() -> io::Result<&'static str> {
     static NAME: OnceLock<Option<String>> = OnceLock::new();

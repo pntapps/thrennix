@@ -35,6 +35,7 @@ pub trait Job: Send + Sync {
     }
 }
 
+#[derive(Clone)]
 pub struct YtInfoOut {
     pub title: String,
     pub formats: Vec<YtFormat>,

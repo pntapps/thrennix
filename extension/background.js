@@ -383,13 +383,16 @@ try {
 
 /* ------------------------------------------------------------ YouTube / yt-dlp */
 
-const YT_FORMATS_TIMEOUT = 60000;
-const YT_CACHE_MS = 10 * 60 * 1000;
+// The app answers within 100 s (a cold yt-dlp start on a slow tablet is slow); its own
+// cache keeps a probe running past a timeout, so asking again picks it up.
+const YT_FORMATS_TIMEOUT = 110000;
+const YT_CACHE_MS = 30 * 60 * 1000;
 const ytCache = new Map(); // video id -> { at, title, formats }
-const ytInflight = new Map(); // video id -> Promise
+const ytInflight = new Map(); // video id -> { p: Promise, prefetch }
 
-// Returns { ok, title, formats } or { ok:false, error }. Successful results cached 10 min.
-function ytFormats(url) {
+// Returns { ok, title, formats } or { ok:false, error }. Successful results cached 30 min.
+// prefetch: warm the cache when a video opens; never starts the app just for that.
+function ytFormats(url, prefetch) {
   const yt = C.youtubeInfo(url);
   if (!yt) return Promise.resolve({ ok: false, error: "Not a YouTube video URL." });
   if (yt.kind === "live") return Promise.resolve({ ok: false, live: true, error: "Live streams aren't supported." });
@@ -397,9 +400,17 @@ function ytFormats(url) {
   if (hit && Date.now() - hit.at < YT_CACHE_MS) {
     return Promise.resolve({ ok: true, id: yt.id, url: yt.watchUrl, title: hit.title, formats: hit.formats });
   }
-  if (ytInflight.has(yt.id)) return ytInflight.get(yt.id);
+  const running = ytInflight.get(yt.id);
+  if (running) {
+    // A user asking while a prefetch runs shares it, but retries if the prefetch failed
+    // (e.g. the app wasn't running, which a prefetch doesn't change).
+    if (!running.prefetch || prefetch) return running.p;
+    return running.p.then((r) => (r.ok ? r : ytFormats(url, false)));
+  }
+  const msg = { type: "ytFormats", url: yt.watchUrl };
+  if (prefetch) msg.prefetch = true;
   const p = (async () => {
-    const r = await nativeSend({ type: "ytFormats", url: yt.watchUrl }, YT_FORMATS_TIMEOUT);
+    const r = await nativeSend(msg, YT_FORMATS_TIMEOUT);
     if (!r || r.type !== "ytFormats") {
       return { ok: false, error: (r && r.message) || "Thrennix could not read this video's qualities." };
     }
@@ -409,8 +420,10 @@ function ytFormats(url) {
     ytCache.set(yt.id, { at: Date.now(), title, formats });
     if (ytCache.size > 200) ytCache.delete(ytCache.keys().next().value);
     return { ok: true, id: yt.id, url: yt.watchUrl, title, formats };
-  })().finally(() => ytInflight.delete(yt.id));
-  ytInflight.set(yt.id, p);
+  })().finally(() => {
+    if (ytInflight.get(yt.id) && ytInflight.get(yt.id).p === p) ytInflight.delete(yt.id);
+  });
+  ytInflight.set(yt.id, { p, prefetch: !!prefetch });
   return p;
 }
 
@@ -1039,7 +1052,10 @@ async function handleMessage(msg, sender) {
     case "downloadMedia":
       return downloadMedia(msg, sender);
     case "ytFormats":
-      return ytFormats(msg.url);
+      return ytFormats(msg.url, false);
+    case "ytPrefetch":
+      ytFormats(msg.url, true).catch(() => {});
+      return { ok: true };
     case "ytDownload":
       return ytDownload(msg.url, msg.format, msg.title);
     case "popupState": {

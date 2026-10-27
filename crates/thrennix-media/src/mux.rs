@@ -60,12 +60,21 @@ async fn run_ffmpeg(
     }
 }
 
-/// Remux `video` (+ optional separate `audio`) into an MP4 at `out` with stream copy.
+/// Output container for [`ffmpeg_mux`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Container {
+    Mp4,
+    /// Takes any codec; the fallback when MP4 refuses a stream.
+    Mkv,
+}
+
+/// Remux `video` (+ optional separate `audio`) into `out` with stream copy.
 pub(crate) async fn ffmpeg_mux(
     ffmpeg: &Path,
     video: (&Path, &str),
     audio: Option<(&Path, &str)>,
     out: &Path,
+    container: Container,
 ) -> Result<()> {
     // Force the demuxer and allow only local file access, so server-supplied bytes cannot
     // steer ffmpeg into other formats (playlists, concat lists) or other files/URLs.
@@ -93,7 +102,11 @@ pub(crate) async fn ffmpeg_mux(
             a.push("-bsf:a".into());
             a.push("aac_adtstoasc".into());
         }
-        for s in ["-movflags", "+faststart", "-f", "mp4"] {
+        let tail: &[&str] = match container {
+            Container::Mp4 => &["-movflags", "+faststart", "-f", "mp4"],
+            Container::Mkv => &["-f", "matroska"],
+        };
+        for s in tail {
             a.push(s.into());
         }
         a.push(out.into());

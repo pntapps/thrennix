@@ -62,6 +62,10 @@ Reply:
 `filesize` is approximate and may be `null`. On failure: `{"type":"error","message":"..."}`; when
 yt-dlp is not installed the message starts with `yt-dlp not found`.
 
+The app keeps each video's list for 30 minutes and shares a running probe between askers, so
+asking again (or after a timeout) is cheap. `"prefetch": true` warms that cache when a video
+opens: the host then does not start the app if it isn't running (reply: `app not running`).
+
 ### `download` with `kind: "ytdlp"`
 ```json
 {"type": "download", "kind": "ytdlp", "url": "<page url>", "format": "<id from ytFormats>", "filename": "<title>"}
