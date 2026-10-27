@@ -472,6 +472,11 @@ pub(crate) fn build_args(
         "--no-colors",
         "--continue",
         "--progress",
+        // The env vars in `command` are not enough: yt-dlp still drops characters outside
+        // the console code page (emoji, `｜`) from `--print`, so the file paths we read
+        // back would not exist and the merge step fails.
+        "--encoding",
+        "utf-8",
         "-N",
         "8",
     ]
@@ -944,6 +949,7 @@ mod tests {
         assert_eq!(a[a.len() - 2], "--");
         assert_eq!(a[a.len() - 1], "https://example.com/watch?v=1");
         assert!(a.contains(&"--merge-output-format".to_string()));
+        assert!(a.windows(2).any(|w| w == ["--encoding", "utf-8"]));
         let audio = build_args("https://e.com/", Path::new("x"), AUDIO_ID, None);
         assert!(!audio.contains(&"--merge-output-format".to_string()));
         assert!(audio.contains(&"%(title)s [%(id)s].%(ext)s".to_string()));
