@@ -15,7 +15,7 @@ thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
 tokio-util = "0.7.20"
-base64 = "0.22.1"
+base64 = "0.23.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl", "Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
